@@ -1,14 +1,3 @@
-{******************************************************************************}
-{ @UnitName     : uPNCriticalSection.pas                                       }
-{ @Project      : PonyWorkEx                                                       }
-{ @Copyright    : -                                                            }
-{ @Author       : 奔腾的心(7180001)                                            }
-{ @Description  : PonyWorkEx 加强锁处理类                                          }
-{ @FileVersion  : 1.0.0.1                                                      }
-{ @CreateDate   : 2011-04-28                                                   }
-{ @Comment      : -                                                            }
-{ @LastUpdate   : 2011-07-09                                                   }
-{******************************************************************************}
 unit uPNCriticalSection;
 
 interface
@@ -16,8 +5,6 @@ interface
 uses
   System.SysUtils,
   System.SyncObjs;
-
-//{$I iekiller.inc}
   
 type
   TPNCriticalSection = class
