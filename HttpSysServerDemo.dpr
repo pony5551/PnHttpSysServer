@@ -33,6 +33,8 @@ begin
   fServer.AddUrl('/','8080',false,'+',true);
   fServer.RegisterCompress(CompressDeflate);
   fServer.OnRequest := Process;
+  fServer.HTTPQueueLength := 100000;
+  fServer.MaxConnections := 100000;
   fServer.Start;
 end;
 

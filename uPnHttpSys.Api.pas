@@ -1032,8 +1032,8 @@ var
   HttpSetUrlGroupProperty: function(UrlGroupId: HTTP_URL_GROUP_ID; Property_: HTTP_SERVER_PROPERTY;
     pPropertyInformation: PVOID; PropertyInformationLength: ULONG): HRESULT; stdcall;
 
-//  HttpQueryUrlGroupProperty: function(UrlGroupId: HTTP_URL_GROUP_ID; var AProperty: HTTP_SERVER_PROPERTY;
-//    pPropertyInformation: PVOID; PropertyInformationLength: ULONG; pReturnLength: PULONG = nil): HRESULT; stdcall;
+  HttpQueryUrlGroupProperty: function(UrlGroupId: HTTP_URL_GROUP_ID; AProperty: HTTP_SERVER_PROPERTY;
+    pPropertyInformation: PVOID; PropertyInformationLength: ULONG; pReturnLength: PULONG = nil): HRESULT; stdcall;
 
   HttpReceiveHttpRequest: function(ReqQueueHandle: THandle; RequestId: HTTP_REQUEST_ID; Flags: ULONG;
     RequestBuffer: PHTTP_REQUEST; RequestBufferLength: ULONG; var pBytesReceived: ULONG; pOverlapped: POverlapped): HRESULT; stdcall;
@@ -1123,6 +1123,7 @@ begin
     HttpAddUrlToUrlGroup := LoadProc('HttpAddUrlToUrlGroup');
     HttpRemoveUrlFromUrlGroup := LoadProc('HttpRemoveUrlFromUrlGroup');
     HttpSetUrlGroupProperty := LoadProc('HttpSetUrlGroupProperty');
+    HttpQueryUrlGroupProperty := LoadProc('HttpQueryUrlGroupProperty');
     HttpReceiveHttpRequest := LoadProc('HttpReceiveHttpRequest');
     HttpReceiveRequestEntityBody := LoadProc('HttpReceiveRequestEntityBody');
     HttpSendHttpResponse := LoadProc('HttpSendHttpResponse');

@@ -195,6 +195,17 @@ type
 
 
     /// <summary>
+    /// 取得注册URL
+    /// </summary>
+    /// <returns></returns>
+    function GetRegisteredUrl: SynUnicode;
+    function GetHTTPQueueLength: Cardinal;
+    procedure SetHTTPQueueLength(aValue: Cardinal);
+    function GetMaxBandwidth: Cardinal;
+    procedure SetMaxBandwidth(aValue: Cardinal);
+    function GetMaxConnections: Cardinal;
+    procedure SetMaxConnections(aValue: Cardinal);
+    /// <summary>
     /// 创建ServerContext对象事件
     /// </summary>
     /// <returns></returns>
@@ -283,6 +294,34 @@ type
 
     property IsRuning: Boolean read GetIsRuning;
 
+  published
+    /// return the list of registered URL on this server instance
+    property RegisteredUrl: SynUnicode read GetRegisteredUrl;
+    /// HTTP.sys request/response queue length (via HTTP API 2.0)
+    // - default value if 1000, which sounds fine for most use cases
+    // - increase this value in case of many 503 HTTP answers or if many
+    // "QueueFull" messages appear in HTTP.sys log files (normaly in
+    // C:\Windows\System32\LogFiles\HTTPERR\httperr*.log) - may appear with
+    // thousands of concurrent clients accessing at once the same server
+  	// - see @http://msdn.microsoft.com/en-us/library/windows/desktop/aa364501
+    // - will return 0 if the system does not support HTTP API 2.0 (i.e.
+    // under Windows XP or Server 2003)
+    // - this method will also handle any cloned instances, so you can write e.g.
+    // ! if aSQLHttpServer.HttpServer.InheritsFrom(THttpApiServer) then
+    // !   THttpApiServer(aSQLHttpServer.HttpServer).HTTPQueueLength := 5000;
+    property HTTPQueueLength: Cardinal read GetHTTPQueueLength write SetHTTPQueueLength;
+    /// the maximum allowed bandwidth rate in bytes per second (via HTTP API 2.0)
+    // - Setting this value to 0 allows an unlimited bandwidth
+    // - by default Windows not limit bandwidth (actually limited to 4 Gbit/sec).
+    // - will return 0 if the system does not support HTTP API 2.0 (i.e.
+    // under Windows XP or Server 2003)
+    property MaxBandwidth: Cardinal read GetMaxBandwidth write SetMaxBandwidth;
+    /// the maximum number of HTTP connections allowed (via HTTP API 2.0)
+    // - Setting this value to 0 allows an unlimited number of connections
+    // - by default Windows does not limit number of allowed connections
+    // - will return 0 if the system does not support HTTP API 2.0 (i.e.
+    // under Windows XP or Server 2003)
+    property MaxConnections: Cardinal read GetMaxConnections write SetMaxConnections;
   end;
 
 
@@ -339,7 +378,7 @@ const
                {$endif MSWINDOWS};
 
   XSERVERNAME = 'PnHttpSysServer';
-  XPOWEREDPROGRAM = XSERVERNAME + ' 0.9a';
+  XPOWEREDPROGRAM = XSERVERNAME + ' 0.9.1a';
   XPOWEREDNAME = 'X-Powered-By';
   XPOWEREDVALUE = XPOWEREDPROGRAM + ' phpok@qq.com';
 
@@ -879,6 +918,150 @@ end;
 
 
 { private functions start ===== }
+function TPnHttpSysServer.GetRegisteredUrl: SynUnicode;
+var i: integer;
+begin
+  if fRegisteredUnicodeUrl=nil then
+    result := ''
+  else
+    result := fRegisteredUnicodeUrl[0];
+  for i := 1 to high(fRegisteredUnicodeUrl) do
+    result := result+','+fRegisteredUnicodeUrl[i];
+end;
+
+function TPnHttpSysServer.GetHTTPQueueLength: Cardinal;
+var
+  returnLength: ULONG;
+  hr: HRESULT;
+begin
+  if (FHttpApiVersion.HttpApiMajorVersion<2) then
+    result := 0
+  else begin
+    if FReqQueueHandle=0 then
+      result := 0
+    else
+      hr := HttpQueryRequestQueueProperty(FReqQueueHandle,HttpServerQueueLengthProperty,
+          @Result, sizeof(Result), 0, returnLength, nil);
+      HttpCheck(hr);
+  end;
+end;
+
+procedure TPnHttpSysServer.SetHTTPQueueLength(aValue: Cardinal);
+var
+  hr: HRESULT;
+begin
+  if FHttpApiVersion.HttpApiMajorVersion<2 then
+    HttpCheck(ERROR_OLD_WIN_VERSION);
+  if (FReqQueueHandle<>0) then
+  begin
+    hr := HttpSetRequestQueueProperty(FReqQueueHandle,HttpServerQueueLengthProperty,
+        @aValue, sizeof(aValue), 0, nil);
+    HttpCheck(hr);
+  end;
+end;
+
+function TPnHttpSysServer.GetMaxBandwidth: Cardinal;
+var qosInfoGet: record
+      qosInfo: HTTP_QOS_SETTING_INFO;
+      limitInfo: HTTP_BANDWIDTH_LIMIT_INFO;
+    end;
+    hr: HRESULT;
+begin
+  if FHttpApiVersion.HttpApiMajorVersion<2 then
+  begin
+    result := 0;
+    exit;
+  end;
+  if fUrlGroupID=0 then
+  begin
+    result := 0;
+    exit;
+  end;
+  qosInfoGet.qosInfo.QosType := HttpQosSettingTypeBandwidth;
+  qosInfoGet.qosInfo.QosSetting := @qosInfoGet.limitInfo;
+  hr := HttpQueryUrlGroupProperty(fUrlGroupID, HttpServerQosProperty,
+      @qosInfoGet, SizeOf(qosInfoGet));
+  HttpCheck(hr);
+  Result := qosInfoGet.limitInfo.MaxBandwidth;
+end;
+
+procedure TPnHttpSysServer.SetMaxBandwidth(aValue: Cardinal);
+var
+  qosInfo: HTTP_QOS_SETTING_INFO;
+  limitInfo: HTTP_BANDWIDTH_LIMIT_INFO;
+  hr: HRESULT;
+begin
+  if FHttpApiVersion.HttpApiMajorVersion<2 then
+    HttpCheck(ERROR_OLD_WIN_VERSION);
+  if (fUrlGroupID<>0) then
+  begin
+    if AValue=0 then
+      limitInfo.MaxBandwidth := HTTP_LIMIT_INFINITE
+    else
+      if AValue<HTTP_MIN_ALLOWED_BANDWIDTH_THROTTLING_RATE then
+        limitInfo.MaxBandwidth := HTTP_MIN_ALLOWED_BANDWIDTH_THROTTLING_RATE
+      else
+        limitInfo.MaxBandwidth := aValue;
+    limitInfo.Flags := 1;
+    qosInfo.QosType := HttpQosSettingTypeBandwidth;
+    qosInfo.QosSetting := @limitInfo;
+    hr := HttpSetServerSessionProperty(fServerSessionID, HttpServerQosProperty,
+        @qosInfo, SizeOf(qosInfo));
+    HttpCheck(hr);
+    hr := HttpSetUrlGroupProperty(fUrlGroupID, HttpServerQosProperty,
+        @qosInfo, SizeOf(qosInfo));
+    HttpCheck(hr);
+  end;
+end;
+
+function TPnHttpSysServer.GetMaxConnections: Cardinal;
+var qosInfoGet: record
+      qosInfo: HTTP_QOS_SETTING_INFO;
+      limitInfo: HTTP_CONNECTION_LIMIT_INFO;
+    end;
+    returnLength: ULONG;
+    hr: HRESULT;
+begin
+  if FHttpApiVersion.HttpApiMajorVersion<2 then
+  begin
+    result := 0;
+    exit;
+  end;
+  if fUrlGroupID=0 then
+  begin
+    result := 0;
+    exit;
+  end;
+  qosInfoGet.qosInfo.QosType := HttpQosSettingTypeConnectionLimit;
+  qosInfoGet.qosInfo.QosSetting := @qosInfoGet.limitInfo;
+  hr := HttpQueryUrlGroupProperty(fUrlGroupID, HttpServerQosProperty,
+      @qosInfoGet, SizeOf(qosInfoGet), @returnLength);
+  HttpCheck(hr);
+  Result := qosInfoGet.limitInfo.MaxConnections;
+end;
+
+procedure TPnHttpSysServer.SetMaxConnections(aValue: Cardinal);
+var qosInfo: HTTP_QOS_SETTING_INFO;
+    limitInfo: HTTP_CONNECTION_LIMIT_INFO;
+    hr: HRESULT;
+begin
+  if FHttpApiVersion.HttpApiMajorVersion<2 then
+    HttpCheck(ERROR_OLD_WIN_VERSION);
+  if (fUrlGroupID<>0) then
+  begin
+    if AValue = 0 then
+      limitInfo.MaxConnections := HTTP_LIMIT_INFINITE
+    else
+      limitInfo.MaxConnections := aValue;
+    limitInfo.Flags := 1;
+    qosInfo.QosType := HttpQosSettingTypeConnectionLimit;
+    qosInfo.QosSetting := @limitInfo;
+    hr := HttpSetUrlGroupProperty(fUrlGroupID, HttpServerQosProperty,
+        @qosInfo, SizeOf(qosInfo));
+    HttpCheck(hr);
+  end;
+end;
+
 function TPnHttpSysServer.OnContextCreateObject: TPNObject;
 begin
   Result := TPnHttpServerContext.Create(Self);
