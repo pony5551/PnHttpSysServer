@@ -4,6 +4,7 @@ program HttpSysServerDemo;
 
 {$R *.res}
 
+//使用Synopse优化字符copy
 {$I Synopse.inc}
 
 uses
@@ -30,7 +31,7 @@ constructor TTestServer.Create;
 begin
   fServer := TPnHttpSysServer.Create(0,1000);
   fServer.AddUrl('/','8080',false,'+',true);
-  fServer.RegisterCompress(CompressDeflate); // our server will deflate html :)
+  fServer.RegisterCompress(CompressDeflate);
   fServer.OnRequest := Process;
   fServer.Start;
 end;
@@ -49,8 +50,7 @@ begin
 //  sList.LoadFromFile('admin_index_Default.html', TEncoding.UTF8);
 //  Ctxt.OutContent := StringToUTF8(sList.Text);
 //  sList.Free;
-
-  Ctxt.OutContent := 'hello world';// + FormatDateTime('yyyy-MM-dd hh:nn:ss.ms', Now());
+  Ctxt.OutContent := 'hello world';
   Ctxt.OutContentType := HTML_CONTENT_TYPE;
   result := 200;
   Exit;

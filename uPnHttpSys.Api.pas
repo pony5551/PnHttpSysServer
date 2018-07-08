@@ -8,7 +8,10 @@ interface
 {$IFDEF MSWINDOWS}
 
 uses
-  Winapi.Windows, Winapi.WinSock, System.SysUtils;
+  System.SysUtils,
+  Winapi.Windows,
+  SynWinSock;
+  //Winapi.WinSock;
 
 {$MinEnumSize 4}
 {$Align 8}
@@ -375,10 +378,6 @@ const
   HTTP_VERSION_0_9: HTTP_VERSION = (MajorVersion: 0; MinorVersion: 9);
   HTTP_VERSION_1_0: HTTP_VERSION = (MajorVersion: 1; MinorVersion: 0);
   HTTP_VERSION_1_1: HTTP_VERSION = (MajorVersion: 1; MinorVersion: 1);
-
-  //pony add
-  /// error raised by HTTP API when the client disconnected (e.g. after timeout)
-  HTTPAPI_ERROR_NONEXISTENTCONNECTION = 1229;
 
 type
   HTTP_VERB = (

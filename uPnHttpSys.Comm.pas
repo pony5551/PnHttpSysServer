@@ -4,9 +4,9 @@ interface
 
 uses
   System.SysUtils,
+  SynCommons,
   Winapi.Windows,
-  uPnHttpSys.Api,
-  SynCommons;
+  uPnHttpSys.Api;
 
 type
 {$ifdef UNICODE}
@@ -122,41 +122,8 @@ type
   THttpSocketCompressSet = set of 0..31;
 
 
-const
-  HttpApiDllName = 'httpapi.dll';
-
-type
-  {$M+}
-  /// exception thrown by the classes of this unit
-  ECrtSocket = class(Exception)
-  protected
-    fLastError: integer;
-  public
-    /// will concat the message with the WSAGetLastError information
-    constructor Create(const Msg: string); overload;
-    /// will concat the message with the supplied WSAGetLastError information
-    constructor Create(const Msg: string; Error: integer); overload;
-    /// will concat the message with the supplied WSAGetLastError information
-    constructor CreateFmt(const Msg: string; const Args: array of const; Error: integer); overload;
-  published
-    /// the associated WSAGetLastError value
-    property LastError: integer read fLastError;
-  end;
-  {$M-}
-
-  EHttpApiServer = class(ECrtSocket)
-  protected
-    fLastApiName: string;
-  public
-    class procedure RaiseOnError(ApiName: string; Error: integer);
-    constructor Create(ApiName: string; Error: integer); reintroduce;
-  published
-    property LastApiName: string read fLastApiName;
-  end;
 
 { functions }
-function SysErrorMessagePerModule(Code: DWORD; ModuleName: PChar): string;
-
 function RetrieveHeaders(const Request: HTTP_REQUEST;
   const RemoteIPHeadUp: SockString; out RemoteIP: SockString): SockString;
 procedure GetDomainUserNameFromToken(UserToken: THandle; var result: SockString);
@@ -179,120 +146,6 @@ implementation
 uses
   SynWinSock;
 
-{ ECrtSocket }
-function SocketErrorMessage(Error: integer): string;
-begin
-  if Error=-1 then
-   Error := WSAGetLastError;
-  case Error of
-  WSAETIMEDOUT:    result := 'WSAETIMEDOUT';
-  WSAENETDOWN:     result := 'WSAENETDOWN';
-  WSAEWOULDBLOCK:  result := 'WSAEWOULDBLOCK';
-  WSAECONNABORTED: result := 'WSAECONNABORTED';
-  WSAECONNRESET:   result := 'WSAECONNRESET';
-  WSAEMFILE:       result := 'WSAEMFILE';
-  else result := '';
-  end;
-  result := Format('%d %s [%s]',[Error,result,SysErrorMessage(Error)]);
-end;
-
-constructor ECrtSocket.Create(const Msg: string);
-begin
-  Create(Msg,WSAGetLastError);
-end;
-
-constructor ECrtSocket.Create(const Msg: string; Error: integer);
-begin
-  if Error=0 then
-    fLastError := WSAEWOULDBLOCK
-  else // if unknown, probably a timeout
-    fLastError := abs(Error);
-  inherited Create(Msg+' '+SocketErrorMessage(fLastError));
-end;
-
-constructor ECrtSocket.CreateFmt(const Msg: string; const Args: array of const; Error: integer);
-begin
-  if Error<0 then
-    Error := WSAGetLastError;
-  Create(Format(Msg,Args),Error);
-end;
-
-
-
-{ EHttpApiServer }
-const
-  ENGLISH_LANGID = $0409;
-  // see http://msdn.microsoft.com/en-us/library/windows/desktop/aa383770
-  ERROR_WINHTTP_CANNOT_CONNECT = 12029;
-  ERROR_WINHTTP_TIMEOUT = 12002;
-  ERROR_WINHTTP_INVALID_SERVER_RESPONSE = 12152;
-
-
-function SysErrorMessagePerModule(Code: DWORD; ModuleName: PChar): string;
-{$ifdef MSWINDOWS}
-var tmpLen: DWORD;
-    err: PChar;
-{$endif}
-begin
-  if Code=NO_ERROR then begin
-    result := '';
-    exit;
-  end;
-  {$ifdef MSWINDOWS}
-  tmpLen := FormatMessage(
-    FORMAT_MESSAGE_FROM_HMODULE or FORMAT_MESSAGE_ALLOCATE_BUFFER,
-    pointer(GetModuleHandle(ModuleName)),Code,ENGLISH_LANGID,@err,0,nil);
-  try
-    while (tmpLen>0) and (ord(err[tmpLen-1]) in [0..32,ord('.')]) do
-      dec(tmpLen);
-    SetString(result,err,tmpLen);
-  finally
-    LocalFree(HLOCAL(err));
-  end;
-  {$endif}
-  if result='' then begin
-    result := SysErrorMessage(Code);
-    if result='' then
-      if Code=ERROR_WINHTTP_CANNOT_CONNECT then
-        result := 'cannot connect'
-      else
-      if Code=ERROR_WINHTTP_TIMEOUT then
-        result := 'timeout'
-      else
-        if Code=ERROR_WINHTTP_INVALID_SERVER_RESPONSE then
-          result := 'invalid server response'
-        else
-          result := IntToHex(Code,8);
-  end;
-end;
-
-procedure RaiseLastModuleError(ModuleName: PChar; ModuleException: ExceptClass);
-var LastError: Integer;
-    Error: Exception;
-begin
-  LastError := GetLastError;
-  if LastError<>NO_ERROR then
-    Error := ModuleException.CreateFmt('%s error %d (%s)',
-      [ModuleName,LastError,SysErrorMessagePerModule(LastError,ModuleName)])
-  else
-    Error := ModuleException.CreateFmt('Undefined %s error',[ModuleName]);
-  raise Error;
-end;
-
-class procedure EHttpApiServer.RaiseOnError(ApiName: string; Error: integer);
-begin
-  if Error<>NO_ERROR then
-    raise Self.Create(ApiName,Error);
-end;
-
-constructor EHttpApiServer.Create(ApiName: string; Error: integer);
-begin
-  fLastError := Error;
-  fLastApiName := ApiName;
-  inherited CreateFmt('%s failed: %s (%d)',
-    [fLastApiName,SysErrorMessagePerModule(Error,HttpApiDllName),Error])
-end;
-
 
 { functions }
 function GetSinIP(const Sin: TVarSin): AnsiString;
@@ -304,7 +157,8 @@ var
   r: integer;
 begin
   result := '';
-  if not IsNewApi(Sin.AddressFamily) then begin
+  if not IsNewApi(Sin.AddressFamily) then
+  begin
     p := inet_ntoa(Sin.sin_addr);
     if p <> nil then
       result := p;
@@ -325,14 +179,16 @@ begin
   if cardinal(ip4addr)=0 then
     result := '' else
   if cardinal(ip4addr)=$0100007f then
-    result := '127.0.0.1' else
+    result := '127.0.0.1'
+  else
     result := SockString(Format('%d.%d.%d.%d',[b[0],b[1],b[2],b[3]]))
 end;
 
 procedure GetSinIPFromCache(const sin: TVarSin; var result: SockString);
 begin
   if sin.sin_family=AF_INET then
-    IP4Text(sin.sin_addr,result) else begin
+    IP4Text(sin.sin_addr,result)
+  else begin
     result := GetSinIP(sin); // AF_INET6 may be optimized in a future revision
     if result='::1' then
       result := '127.0.0.1'; // IP6 localhost loopback benefits of matching IP4
@@ -385,11 +241,13 @@ begin
   assert(high(KNOWNHEADERS)=high(Request.Headers.KnownHeaders));
   // compute remote IP
   L := length(RemoteIPHeadUp);
-  if L<>0 then begin
+  if L<>0 then
+  begin
     P := Request.Headers.pUnknownHeaders;
     if P<>nil then
     for i := 1 to Request.Headers.UnknownHeaderCount do
-      if (P^.NameLength=L) and IdemPChar(PUTF8Char(P^.pName),Pointer(RemoteIPHeadUp)) then begin
+      if (P^.NameLength=L) and IdemPChar(PUTF8Char(P^.pName),Pointer(RemoteIPHeadUp)) then
+      begin
         SetString(RemoteIP,p^.pRawValue,p^.RawValueLength);
         break;
       end else
@@ -400,14 +258,16 @@ begin
   // compute headers length
   Lip := length(RemoteIP);
   if Lip<>0 then
-    L := (REMOTEIP_HEADERLEN+2)+Lip else
+    L := (REMOTEIP_HEADERLEN+2)+Lip
+  else
     L := 0;
   for H := low(KNOWNHEADERS) to high(KNOWNHEADERS) do
     if Request.Headers.KnownHeaders[h].RawValueLength<>0 then
       inc(L,Request.Headers.KnownHeaders[h].RawValueLength+ord(KNOWNHEADERS[h][0])+4);
   P := Request.Headers.pUnknownHeaders;
   if P<>nil then
-    for i := 1 to Request.Headers.UnknownHeaderCount do begin
+    for i := 1 to Request.Headers.UnknownHeaderCount do
+    begin
       inc(L,P^.NameLength+P^.RawValueLength+4); // +4 for each ': '+#13#10
       inc(P);
     end;
@@ -415,7 +275,8 @@ begin
   SetString(result,nil,L);
   D := pointer(result);
   for H := low(KNOWNHEADERS) to high(KNOWNHEADERS) do
-    if Request.Headers.KnownHeaders[h].RawValueLength<>0 then begin
+    if Request.Headers.KnownHeaders[h].RawValueLength<>0 then
+    begin
       move(KNOWNHEADERS[h][1],D^,ord(KNOWNHEADERS[h][0]));
       inc(D,ord(KNOWNHEADERS[h][0]));
       PWord(D)^ := ord(':')+ord(' ')shl 8;
@@ -428,7 +289,8 @@ begin
     end;
   P := Request.Headers.pUnknownHeaders;
   if P<>nil then
-    for i := 1 to Request.Headers.UnknownHeaderCount do begin
+    for i := 1 to Request.Headers.UnknownHeaderCount do
+    begin
       move(P^.pName^,D^,P^.NameLength);
       inc(D,P^.NameLength);
       PWord(D)^ := ord(':')+ord(' ')shl 8;
@@ -439,7 +301,8 @@ begin
       PWord(D)^ := 13+10 shl 8;
       inc(D,2);
     end;
-  if Lip<>0 then begin
+  if Lip<>0 then
+  begin
     move(REMOTEIP_HEADER[1],D^,REMOTEIP_HEADERLEN);
     inc(D,REMOTEIP_HEADERLEN);
     move(pointer(RemoteIP)^,D^,Lip);
@@ -481,14 +344,17 @@ end;
 function GetCardinal(P: PAnsiChar): cardinal; overload;
 var c: cardinal;
 begin
-  if P=nil then begin
+  if P=nil then
+  begin
     result := 0;
     exit;
   end;
-  if P^=' ' then repeat inc(P) until P^<>' ';
+  if P^=' ' then
+    repeat inc(P) until P^<>' ';
   c := byte(P^)-48;
   if c>9 then
-    result := 0 else begin
+    result := 0
+  else begin
     result := c;
     inc(P);
     repeat
@@ -507,19 +373,22 @@ begin
   result := 0;
   if (P=nil) or (P>=PEnd) then
     exit;
-  if P^=' ' then repeat
-    inc(P);
-    if P=PEnd then exit;
-  until P^<>' ';
+  if P^=' ' then
+    repeat
+      inc(P);
+      if P=PEnd then exit;
+    until P^<>' ';
   c := byte(P^)-48;
   if c>9 then
     exit;
   result := c;
   inc(P);
-  while P<PEnd do begin
+  while P<PEnd do
+  begin
     c := byte(P^)-48;
     if c>9 then
-      break else
+      break
+    else
       result := result*10+c;
     inc(P);
   end;
@@ -581,13 +450,16 @@ end;
 function StatusCodeToReason(Code: Cardinal): SockString;
 var Hi,Lo: cardinal;
 begin
-  if Code=200 then begin // optimistic approach :)
+  if Code=200 then
+  begin // optimistic approach :)
     Hi := 2;
     Lo := 0;
-  end else begin
+  end
+  else begin
     Hi := Code div 100;
     Lo := Code-Hi*100;
-    if not ((Hi in [1..5]) and (Lo in [0..8])) then begin
+    if not ((Hi in [1..5]) and (Lo in [0..8])) then
+    begin
       result := StatusCodeToReasonInternal(Code);
       exit;
     end;
@@ -610,7 +482,8 @@ begin
     repeat
       c := p^;
       if up^<>c then
-        if c in ['a'..'z'] then begin
+        if c in ['a'..'z'] then
+        begin
           dec(c,32);
           if up^<>c then
             exit;
@@ -671,7 +544,8 @@ begin
   aName := aFunction(dummy,true);
   for i := 0 to n-1 do
     with Compress[i] do
-      if Name=aName then begin // already set
+      if Name=aName then
+      begin // already set
         if @Func=@aFunction then // update min. compress size value
           CompressMinSize := aCompressMinSize;
         exit;
@@ -679,13 +553,15 @@ begin
   if n=sizeof(integer)*8 then
     exit; // fCompressHeader is 0..31 (casted as integer)
   SetLength(Compress,n+1);
-  with Compress[n] do begin
+  with Compress[n] do
+  begin
     Name := aName;
     @Func := @aFunction;
     CompressMinSize := aCompressMinSize;
   end;
   if aAcceptEncoding='' then
-    aAcceptEncoding := 'Accept-Encoding: '+aName else
+    aAcceptEncoding := 'Accept-Encoding: '+aName
+  else
     aAcceptEncoding := aAcceptEncoding+','+aName;
   result := aName;
 end;
@@ -697,7 +573,8 @@ var i, OutContentLen: integer;
     compressible: boolean;
     OutContentTypeP: PAnsiChar absolute OutContentType;
 begin
-  if (integer(Accepted)<>0) and (OutContentType<>'') and (Handled<>nil) then begin
+  if (integer(Accepted)<>0) and (OutContentType<>'') and (Handled<>nil) then
+  begin
     OutContentLen := length(OutContent);
     case IdemPCharArray(OutContentTypeP,['TEXT/','IMAGE/','APPLICATION/']) of
     0: compressible := true;
