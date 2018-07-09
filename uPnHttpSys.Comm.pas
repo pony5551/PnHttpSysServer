@@ -4,7 +4,6 @@ interface
 
 uses
   System.SysUtils,
-  SynCommons,
   Winapi.Windows,
   uPnHttpSys.Api;
 
@@ -122,6 +121,29 @@ type
   THttpSocketCompressSet = set of 0..31;
 
 
+  /// http.sys API 2.0 logging option flags
+  // - used to alter the default logging behavior
+  // - hlfLocalTimeRollover would force the log file rollovers by local time,
+  // instead of the default GMT time
+  // - hlfUseUTF8Conversion will use UTF-8 instead of default local code page
+  // - only one of hlfLogErrorsOnly and hlfLogSuccessOnly flag could be set
+  // at a time: if neither of them are present, both errors and success will
+  // be logged, otherwise mutually exclusive flags could be set to force only
+  // errors or success logging
+  // - match low-level HTTP_LOGGING_FLAG_* constants as defined in HTTP 2.0 API
+  THttpApiLoggingFlags = set of (
+    hlfLocalTimeRollover, hlfUseUTF8Conversion,
+    hlfLogErrorsOnly, hlfLogSuccessOnly);
+
+  /// http.sys API 2.0 fields used for W3C logging
+  // - match low-level HTTP_LOG_FIELD_* constants as defined in HTTP 2.0 API
+  THttpApiLogFields = set of (
+    hlfDate, hlfTime, hlfClientIP, hlfUserName, hlfSiteName, hlfComputerName,
+    hlfServerIP, hlfMethod, hlfURIStem, hlfURIQuery, hlfStatus, hlfWIN32Status,
+    hlfBytesSent, hlfBytesRecv, hlfTimeTaken, hlfServerPort, hlfUserAgent,
+    hlfCookie, hlfReferer, hlfVersion, hlfHost, hlfSubStatus);
+
+
 
 { functions }
 function RetrieveHeaders(const Request: HTTP_REQUEST;
@@ -130,6 +152,7 @@ procedure GetDomainUserNameFromToken(UserToken: THandle; var result: SockString)
 function GetCardinal(P: PAnsiChar): cardinal; overload;
 function GetCardinal(P,PEnd: PAnsiChar): cardinal; overload;
 function StatusCodeToReason(Code: Cardinal): SockString;
+function IdemPChar(p, up: pAnsiChar): Boolean;
 function IdemPCharArray(p: PAnsiChar; const upArray: array of PAnsiChar): integer;
 function ComputeContentEncoding(const Compress: THttpSocketCompressRecDynArray;
   P: PAnsiChar): THttpSocketCompressSet;
@@ -140,6 +163,9 @@ function CompressDataAndGetHeaders(Accepted: THttpSocketCompressSet;
   const Handled: THttpSocketCompressRecDynArray; const OutContentType: SockString;
   var OutContent: SockString): SockString;
 function HtmlEncode(const s: SockString): SockString;
+function GetNextItemUInt64(var P: PAnsiChar): ULONGLONG;
+procedure AppendI64(value: Int64; var dest: shortstring);
+procedure AppendChar(chr: AnsiChar; var dest: shortstring);
 
 implementation
 
@@ -194,28 +220,6 @@ begin
       result := '127.0.0.1'; // IP6 localhost loopback benefits of matching IP4
   end;
 end;
-
-//function IdemPChar(p, up: pAnsiChar): boolean;
-//// if the beginning of p^ is same as up^ (ignore case - up^ must be already Upper)
-//var c: AnsiChar;
-//begin
-//  result := false;
-//  if p=nil then
-//    exit;
-//  if (up<>nil) and (up^<>#0) then
-//    repeat
-//      c := p^;
-//      if up^<>c then
-//        if c in ['a'..'z'] then begin
-//          dec(c,32);
-//          if up^<>c then
-//            exit;
-//        end else exit;
-//      inc(up);
-//      inc(p);
-//    until up^=#0;
-//  result := true;
-//end;
 
 const
   REMOTEIP_HEADERLEN = 10;
@@ -471,9 +475,10 @@ begin
   ReasonCache[Hi,Lo] := result;
 end;
 
-function IdemPChar(p, up: pAnsiChar): boolean;
+function IdemPChar(p, up: pAnsiChar): Boolean;
 // if the beginning of p^ is same as up^ (ignore case - up^ must be already Upper)
-var c: AnsiChar;
+var
+  c: AnsiChar;
 begin
   result := false;
   if p=nil then
@@ -487,7 +492,9 @@ begin
           dec(c,32);
           if up^<>c then
             exit;
-        end else exit;
+        end
+        else
+          exit;
       inc(up);
       inc(p);
     until up^=#0;
@@ -497,7 +504,8 @@ end;
 function IdemPCharArray(p: PAnsiChar; const upArray: array of PAnsiChar): integer;
 var w: word;
 begin
-  if p<>nil then begin
+  if p<>nil then
+  begin
     w := ord(p[0])+ord(p[1])shl 8;
     if p[0] in ['a'..'z'] then
       dec(w,32);
@@ -586,7 +594,8 @@ begin
     if i in Accepted then
     with Handled[i] do
     if (CompressMinSize=0) or // 0 here means "always" (e.g. for encryption)
-       (compressible and (OutContentLen>=CompressMinSize)) then begin
+       (compressible and (OutContentLen>=CompressMinSize)) then
+    begin
       // compression of the OutContent + update header
       result := Func(OutContent,true);
       exit; // first in fCompress[] is prefered
@@ -607,6 +616,34 @@ begin // not very fast, but working
       '"': result := result+'&quot;';
       else result := result+s[i];
     end;
+end;
+
+function GetNextItemUInt64(var P: PAnsiChar): ULONGLONG;
+var c: PtrUInt;
+begin
+  result := 0;
+  if P<>nil then
+    repeat
+      c := byte(P^)-48;
+      if c>9 then
+        break else
+        result := result*10+ULONGLONG(c);
+      inc(P);
+    until false;
+end; // P^ will point to the first non digit char
+
+procedure AppendI64(value: Int64; var dest: shortstring);
+var
+  temp: shortstring;
+begin
+  str(value,temp);
+  dest := dest+temp;
+end;
+
+procedure AppendChar(chr: AnsiChar; var dest: shortstring);
+begin
+  inc(dest[0]);
+  dest[ord(dest[0])] := chr;
 end;
 
 end.

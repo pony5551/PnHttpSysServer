@@ -22,3 +22,5 @@ ms httpapi server with iocp
 0.9a 整理了部份代码，并修正了一个request body接收完成时的bug
 
 0.9.1a 把mormot的几个设置都移过来了，目前还有日志没有完善，还有线程事件没有增加
+
+0.9.2a 增加w3c日志,增加异步的文件发送(基于mORMot的方法修改)
