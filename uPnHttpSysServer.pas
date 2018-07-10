@@ -17,12 +17,15 @@ const
   RequestBufferLen = 16*1024 + SizeOf(HTTP_REQUEST);
 
   /// the running Operating System
-  XPOWEREDOS = {$ifdef MSWINDOWS} 'Windows' {$else}
-                 {$ifdef LINUXNOTBSD} 'Linux' {$else} 'Posix' {$endif LINUXNOTBSD}
-               {$endif MSWINDOWS};
+  XPOWEREDOS =
+    {$ifdef MSWINDOWS}
+      'Windows'
+    {$else}
+      {$ifdef LINUXNOTBSD} 'Linux' {$else} 'Posix' {$endif LINUXNOTBSD}
+    {$endif MSWINDOWS};
 
   XSERVERNAME = 'PnHttpSysServer';
-  XPOWEREDPROGRAM = XSERVERNAME + ' 0.9.3a';
+  XPOWEREDPROGRAM = XSERVERNAME + ' 0.9.4b';
   XPOWEREDNAME = 'X-Powered-By';
   XPOWEREDVALUE = XPOWEREDPROGRAM + ' ';
 
@@ -110,33 +113,24 @@ type
     function SendFile(AFileName, AMimeType: SockString; Heads: HTTP_UNKNOWN_HEADERs; pLogFieldsData: Pointer): Boolean;
     function SendResponse: Boolean;
 
-
+    /// PnHttpSysServer
     property Server: TPnHttpSysServer read fServer;
-
-    /// input parameter containing the caller URI
+    /// URI与请求参数
     property URL: SockString read fURL;
-    /// input parameter containing the caller method (GET/POST...)
+    /// 请求方法(GET/POST...)
     property Method: SockString read fMethod;
-    /// input parameter containing the caller message headers
+    /// 请求头
     property InHeaders: SockString read fInHeaders;
-    /// input parameter containing the caller message body
-    // - e.g. some GET/POST/PUT JSON data can be specified here
+    /// 请求body,多为post或上传文件
     property InContent: SockString read fInContent;
-    // input parameter defining the caller message body content type
+    /// 请求body的内容类型,指定HTTP_RESP_STATICFILE交给SendResponse处理静态文件
     property InContentType: SockString read fInContentType;
-    /// output parameter to be set to the response message body
-    property OutContent: SockString read fOutContent write fOutContent ;
-    /// output parameter to define the reponse message body content type
-    // - if OutContentType is HTTP_RESP_STATICFILE (i.e. '!STATICFILE', defined
-    // as STATICFILE_CONTENT_TYPE in mORMot.pas), then OutContent is the UTF-8
-    // file name of a file which must be sent to the client via http.sys (much
-    // faster than manual buffering/sending)
-    // - if OutContentType is HTTP_RESP_NORESPONSE (i.e. '!NORESPONSE', defined
-    // as NORESPONSE_CONTENT_TYPE in mORMot.pas), then the actual transmission
-    // protocol may not wait for any answer - used e.g. for WebSockets
+    /// 输出body文本,发送内存流时用到，大小受string限制为2G,为静态文件时此处为文件路径
+    property OutContent: SockString read fOutContent write fOutContent;
+    /// 响应body的内容类型,指定HTTP_RESP_STATICFILE交给SendResponse处理静态文件
+    // - 为!NORESPONSE时可自定义类型,如处理websockets消息等等
     property OutContentType: SockString read fOutContentType write fOutContentType;
-    /// output parameter to be sent back as the response message header
-    // - e.g. to set Content-Type/Location
+    /// 响应头信息
     property OutCustomHeaders: SockString read fOutCustomHeaders write fOutCustomHeaders;
 
   end;
@@ -152,23 +146,11 @@ type
   end;
 
 
-  /// event handler used by THttpServerGeneric.OnRequest property
-  // - Ctxt defines both input and output parameters
-  // - result of the function is the HTTP error code (200 if OK, e.g.)
-  // - OutCustomHeader will handle Content-Type/Location
-  // - if OutContentType is HTTP_RESP_STATICFILE (i.e. '!STATICFILE' aka
-  // STATICFILE_CONTENT_TYPE in mORMot.pas), then OutContent is the UTF-8 file
-  // name of a file which must be sent to the client via http.sys (much faster
-  // than manual buffering/sending) and  the OutCustomHeader should
-  // contain the proper 'Content-type: ....'
+  //主响应处理事件,事件中可以完成Header与body的内容处理
   TOnHttpServerRequest = function(Ctxt: TPnHttpServerContext): Cardinal of object;
 
-  /// event handler used by THttpServerGeneric.OnBeforeBody property
-  // - if defined, is called just before the body is retrieved from the client
-  // - supplied parameters reflect the current input state
-  // - should return STATUS_SUCCESS=200 to continue the process, or an HTTP
-  // error code (e.g. STATUS_FORBIDDEN or STATUS_PAYLOADTOOLARGE) to reject
-  // the request
+  /// 事件提供所有请求参数头信息与body度度(可以用来检测ip与上传数据大小等),返回200继续进程，
+  // - 否则请返回其他http状态码
   TOnHttpServerBeforeBody = function(const AURL,AMethod,AInHeaders,
     AInContentType,ARemoteIP: SockString; AContentLength: Integer;
     AUseSSL: Boolean): Cardinal of object;
@@ -194,11 +176,11 @@ type
     fLoggined: Boolean;
     //接收上传数据块大小
     fReceiveBufferSize: Cardinal;
-    /// list of all registered compression algorithms
+    /// 所有注册压缩算法的列表
     fCompress: THttpSocketCompressRecDynArray;
-    /// set by RegisterCompress method
+    /// 由RegisterCompress设置的压缩算法
     fCompressAcceptEncoding: SockString;
-    /// list of all registered URL
+    /// 所有AddUrl注册URL的列表
     fRegisteredUnicodeUrl: array of SynUnicode;
 
 
@@ -287,6 +269,11 @@ type
     function ProcessIoEvent: Boolean; inline;
 
   public
+    /// <summary>
+    /// 实例化
+    /// </summary>
+    /// <param name="AIoThreadsCount">线程数,0则为CPUCount*2+1</param>
+    /// <param name="AContextObjCount">对象池的初始化对象数</param>
     constructor Create(AIoThreadsCount: Integer = 0; AContextObjCount: Integer = 1000);
     destructor Destroy; override;
     /// <summary>
@@ -307,9 +294,22 @@ type
     procedure RegisterCompress(aFunction: THttpSocketCompress;
       aCompressMinSize: Integer = 1024);
     procedure SetTimeOutLimits(aEntityBody, aDrainEntityBody,
-      aRequestQueue, aIdleConnection, aHeaderWait, aMinSendRate: cardinal);
-    procedure LogStart(const aLogFolder: TFileName; aFormat: HTTP_LOGGING_TYPE = HttpLoggingTypeW3C;
-      aLogFields: THttpApiLogFields = [hlfDate..hlfSubStatus]; aFlags: THttpApiLoggingFlags = [hlfUseUTF8Conversion]);
+      aRequestQueue, aIdleConnection, aHeaderWait, aMinSendRate: Cardinal);
+    /// <summary>
+    /// 启用http.sys日志
+    /// </summary>
+    /// <param name="aLogFolder">日志文件夹</param>
+    /// <param name="aFormat">日志格式HttpLoggingTypeW3C</param>
+    /// <param name="aRolloverType">日志文件生成类型,默认HttpLoggingRolloverHourly按小时</param>
+    /// <param name="aRolloverSize">按大小生成日志时的日志大小</param>
+    /// <param name="aLogFields">指定的日志列</param>
+    /// <param name="aFlags">日志存储类型</param>
+    procedure LogStart(const aLogFolder: TFileName;
+      aFormat: HTTP_LOGGING_TYPE = HttpLoggingTypeW3C;
+      aRolloverType: HTTP_LOGGING_ROLLOVER_TYPE = HttpLoggingRolloverHourly;
+      aRolloverSize: Cardinal = 0;
+      aLogFields: THttpApiLogFields = [hlfDate..hlfSubStatus];
+      aFlags: THttpApiLoggingFlags = [hlfUseUTF8Conversion]);
     procedure LogStop;
 
     //events
@@ -325,42 +325,26 @@ type
       write fMaximumAllowedContentLength;
     property ServerName: SockString read fServerName write fServerName;
     property Loggined: Boolean read fLoggined;
-    /// how many bytes are retrieved in a single call to ReceiveRequestEntityBody
-    // - set by default to 1048576, i.e. 1 MB - practical limit is around 20 MB
-    // - you may customize this value if you encounter HTTP error STATUS_NOTACCEPTABLE
-    // (406) from client, corresponding to an ERROR_NO_SYSTEM_RESOURCES (1450)
-    // exception on server side, when uploading huge data content
+    /// 定义ReceiveRequestEntityBody一次接收多少字节
+    // - 为上传数据分块接收
     property ReceiveBufferSize: Cardinal read fReceiveBufferSize write fReceiveBufferSize;
-
+    /// 是否运行中
     property IsRuning: Boolean read GetIsRuning;
 
   published
-    /// return the list of registered URL on this server instance
+    /// 返回此服务器实例上的注册URL列表
     property RegisteredUrl: SynUnicode read GetRegisteredUrl;
-    /// HTTP.sys request/response queue length (via HTTP API 2.0)
-    // - default value if 1000, which sounds fine for most use cases
-    // - increase this value in case of many 503 HTTP answers or if many
-    // "QueueFull" messages appear in HTTP.sys log files (normaly in
-    // C:\Windows\System32\LogFiles\HTTPERR\httperr*.log) - may appear with
-    // thousands of concurrent clients accessing at once the same server
-  	// - see @http://msdn.microsoft.com/en-us/library/windows/desktop/aa364501
-    // - will return 0 if the system does not support HTTP API 2.0 (i.e.
-    // under Windows XP or Server 2003)
-    // - this method will also handle any cloned instances, so you can write e.g.
-    // ! if aSQLHttpServer.HttpServer.InheritsFrom(THttpApiServer) then
-    // !   THttpApiServer(aSQLHttpServer.HttpServer).HTTPQueueLength := 5000;
+    /// HTTP.sys request/response 队列长度
+    // - 默认1000
+    // - 建议为5000或更高
     property HTTPQueueLength: Cardinal read GetHTTPQueueLength write SetHTTPQueueLength;
-    /// the maximum allowed bandwidth rate in bytes per second (via HTTP API 2.0)
-    // - Setting this value to 0 allows an unlimited bandwidth
-    // - by default Windows not limit bandwidth (actually limited to 4 Gbit/sec).
-    // - will return 0 if the system does not support HTTP API 2.0 (i.e.
-    // under Windows XP or Server 2003)
+    /// 每秒允许的最大带宽(以字节为单位)
+    // -将这个值设置为0允许无限带宽
+    // -默认情况下，Windows不限制带宽(实际上限制为4 Gbit/sec)。
     property MaxBandwidth: Cardinal read GetMaxBandwidth write SetMaxBandwidth;
-    /// the maximum number of HTTP connections allowed (via HTTP API 2.0)
-    // - Setting this value to 0 allows an unlimited number of connections
-    // - by default Windows does not limit number of allowed connections
-    // - will return 0 if the system does not support HTTP API 2.0 (i.e.
-    // under Windows XP or Server 2003)
+    /// http最大连接数
+    // - 设置0不限制
+    // - 系统默认不限制
     property MaxConnections: Cardinal read GetMaxConnections write SetMaxConnections;
 
   end;
@@ -429,10 +413,11 @@ begin
     {$endif}
     if P<>nil then
     repeat
-      while P^ in [#13,#10] do inc(P);
+      while P^ in [#13,#10] do
+        inc(P);
       if P^=#0 then
         break;
-      P := AddCustomHeader(Resp, P,UnknownHeaders,false);
+      P := AddCustomHeader(Resp, P, UnknownHeaders, false);
     until false;
   end;
 end;
@@ -440,15 +425,17 @@ end;
 
 function TPnHttpServerContext.AddCustomHeader(Resp: PHTTP_RESPONSE; P: PAnsiChar;
   var UnknownHeaders: HTTP_UNKNOWN_HEADERs; ForceCustomHeader: Boolean): PAnsiChar;
-const KNOWNHEADERS: array[HttpHeaderCacheControl..HttpHeaderWwwAuthenticate] of PAnsiChar = (
+const
+  KNOWNHEADERS: array[HttpHeaderCacheControl..HttpHeaderWwwAuthenticate] of PAnsiChar = (
     'CACHE-CONTROL:','CONNECTION:','DATE:','KEEP-ALIVE:','PRAGMA:','TRAILER:',
     'TRANSFER-ENCODING:','UPGRADE:','VIA:','WARNING:','ALLOW:','CONTENT-LENGTH:',
     'CONTENT-TYPE:','CONTENT-ENCODING:','CONTENT-LANGUAGE:','CONTENT-LOCATION:',
     'CONTENT-MD5:','CONTENT-RANGE:','EXPIRES:','LAST-MODIFIED:',
     'ACCEPT-RANGES:','AGE:','ETAG:','LOCATION:','PROXY-AUTHENTICATE:',
     'RETRY-AFTER:','SERVER:','SET-COOKIE:','VARY:','WWW-AUTHENTICATE:');
-var UnknownName: PAnsiChar;
-    i: integer;
+var
+  UnknownName: PAnsiChar;
+  i: Integer;
 begin
   with Resp^ do
   begin
@@ -475,9 +462,12 @@ begin
         begin
           pName := UnknownName;
           NameLength := P-pName;
-          repeat inc(P) until P^<>' ';
+          repeat
+            inc(P)
+          until P^<>' ';
           pRawValue := P;
-          while P^>=' ' do inc(P);
+          while P^>=' ' do
+            inc(P);
           RawValueLength := P-pRawValue;
           if Headers.UnknownHeaderCount=high(UnknownHeaders) then
           begin
@@ -524,7 +514,6 @@ begin
     OutContent := UTF8String(Msg)+HtmlEncode(
       {$ifdef UNICODE}UTF8String{$else}UTF8Encode{$endif}(ErrorMsg))
       {$ifndef NOXPOWEREDNAME}+'</p><p><small>'+XPOWEREDVALUE{$endif};
-      //'text/html; charset=utf-8';
 
     dataChunk.DataChunkType := HttpDataChunkFromMemory;
     dataChunk.pBuffer := PAnsiChar(OutContent);
@@ -644,7 +633,7 @@ begin
     Headers.KnownHeaders[HttpHeaderLastModified].pRawValue := PAnsiChar(sLastModified);
   end;
 
-  //HttpHeaderIfModifiedSince
+  //http 304
   with fReq^.Headers.KnownHeaders[HttpHeaderIfModifiedSince] do
     SetString(sIfModifiedSince,pRawValue,RawValueLength);
   if sIfModifiedSince<>'' then
@@ -661,6 +650,7 @@ begin
       fResp.pReason := PAnsiChar(OutStatus);
       fResp.ReasonLength := Length(OutStatus);
       SendResp;
+      Result := True;
       Exit;
     end
   end;
@@ -713,7 +703,6 @@ begin
         end;
       end;
     end;
-
   end;
 
   with fResp do
@@ -725,7 +714,7 @@ begin
 
   //开始发送
   SendResp;
-
+  Result := True;
 end;
 
 function TPnHttpServerContext.SendResponse: Boolean;
@@ -868,8 +857,6 @@ begin
 
 end;
 
-
-
 function TPnHttpServerContext._NewIoData: PPerHttpIoData;
 begin
   System.New(Result);
@@ -937,7 +924,11 @@ begin
   inherited Create;
   fServerName := XSERVERNAME+' ('+XPOWEREDOS+')';
   fLoggined := False;
-  fMaximumAllowedContentLength := 0;
+  //上传文件大小限制,默认2g
+  //fMaximumAllowedContentLength := 0;
+  //fMaximumAllowedContentLength := 1024*1024*2; //2GB
+  //fMaximumAllowedContentLength := 1024*1024*1; //1GB
+  fMaximumAllowedContentLength := 1024*1024 div 2; //500MB
   //接收post的数据块大小
   fReceiveBufferSize := 1048576; // i.e. 1 MB
 
@@ -956,31 +947,10 @@ begin
     //Assert(hr=NO_ERROR, 'HttpCreateServerSession Error');
     HttpCheck(hr);
 
-
-//	//enable logging
-//	CStringW strLogDir = GetLoggingDirectory();
-//	HTTP_LOGGING_INFO LogginInfo;
-//	ZeroMemory(&LogginInfo,sizeof(HTTP_LOGGING_INFO));
-//	LogginInfo.Flags.Present=1;
-//	LogginInfo.Format=HttpLoggingTypeW3C;
-//	LogginInfo.Fields=HTTP_LOG_FIELD_TIME|HTTP_LOG_FIELD_CLIENT_IP;
-//	LogginInfo.DirectoryName=(LPCWSTR)strLogDir;
-//	LogginInfo.DirectoryNameLength=strLogDir.GetLength()*2;
-//	LogginInfo.RolloverType=HttpLoggingRolloverDaily;
-//	ul=HttpSetServerSessionProperty(ServerSessionID,HttpServerLoggingProperty,&LogginInfo,sizeof(HTTP_LOGGING_INFO));
-//	assert(ul==NO_ERROR);
-
-
     //Create FUrlGroupID
     hr := HttpCreateUrlGroup(FServerSessionID,FUrlGroupID,0);
     //Assert(hr=NO_ERROR, 'HttpCreateUrlGroup Error');
     HttpCheck(hr);
-
-//    //test port 8080
-//    LUrlContext := 0;
-//    LUri := RegURL('/', '8080', False, '+');
-//    hr := HttpAddUrlToUrlGroup(FUrlGroupID,Pointer(LUri),LUrlContext,0);
-//    Assert(hr=NO_ERROR, 'HttpAddUrlToUrlGroup Error');
 
     //Create FReqQueueHandle
     LQueueName := '';
@@ -1500,7 +1470,6 @@ begin
           fInContentBufRead := Pointer(fInContent);
           fReqPerHttpIoData^.BytesRead := 0;
           fReqPerHttpIoData^.Action := IoRequestBody;
-          //fReqPerHttpIoData^.HttpRequestId := fReqPerHttpIoData^.HttpRequestId;
           fReqPerHttpIoData^.hFile := INVALID_HANDLE_VALUE;
           _HandleRequestBody(AContext);
 
@@ -1526,7 +1495,7 @@ begin
 
     LContext.fReqPerHttpIoData^.BytesRead := 0;
     LContext.fReqPerHttpIoData^.Action := IoRequestHead;
-    //LContext.fReqPerHttpIoData^.HttpRequestId := HTTP_NULL_ID;    LContext.fReqPerHttpIoData^.hFile := INVALID_HANDLE_VALUE;
+    LContext.fReqPerHttpIoData^.hFile := INVALID_HANDLE_VALUE;
 
     BytesRead := 0;
     hr := HttpReceiveHttpRequest(
@@ -1585,7 +1554,6 @@ begin
       if (fReceiveBufferSize>=1024) and (fInContentLengthChunk>fReceiveBufferSize) then
         fInContentLengthChunk := fReceiveBufferSize;
       //数据指针
-      //fInContentBufRead := Pointer(Cardinal(Pointer(fInContent))+fInContentLengthRead);
       //fInContentBufRead := Pointer(PByte(fInContent)+fInContentLengthRead);
       fInContentBufRead := Pointer(PAnsiChar(fInContent)+fInContentLengthRead);
       BytesRead := 0;
@@ -1658,7 +1626,6 @@ end;
 procedure TPnHttpSysServer._HandleResponseEnd(AContext: TPnHttpServerContext);
 begin
   try
-    //AContext.Free;
     with AContext do
       if fReqPerHttpIoData.hFile>0 then
       begin
@@ -1669,6 +1636,7 @@ begin
   except
 
   end;
+  //AContext.Free;
   FContextObjPool.ReleaseObject(AContext)
 end;
 
@@ -1821,6 +1789,8 @@ begin
 end;
 
 procedure TPnHttpSysServer.LogStart(const aLogFolder: TFileName; aFormat: HTTP_LOGGING_TYPE;
+  aRolloverType: HTTP_LOGGING_ROLLOVER_TYPE;
+  aRolloverSize: Cardinal;
   aLogFields: THttpApiLogFields; aFlags: THttpApiLoggingFlags);
 var
   LogginInfo: HTTP_LOGGING_INFO;
@@ -1828,7 +1798,7 @@ var
   hr: HRESULT;
 begin
   if aLogFolder='' then
-    EHttpApiException.CreateFmt('aLogFolder is too long for LogStart(%s)',[aLogFolder]);
+    EHttpApiException.CreateFmt('请指定日志文件夹,LogStart(%s)',[aLogFolder]);
   if FHttpApiVersion.HttpApiMajorVersion<2 then
     HttpCheck(ERROR_OLD_WIN_VERSION);
 
@@ -1837,7 +1807,7 @@ begin
 
   FillChar(LogginInfo, sizeof(HTTP_LOGGING_INFO), 0);
   LogginInfo.Flags := 1;
-  LogginInfo.LoggingFlags := HTTP_LOGGING_FLAG_USE_UTF8_CONVERSION; //aFlags
+  LogginInfo.LoggingFlags := Byte(aFlags);
   LogginInfo.SoftwareNameLength := Length(software)*2;
   LogginInfo.SoftwareName := PWideChar(software);
   LogginInfo.DirectoryNameLength := Length(folder)*2;
@@ -1846,16 +1816,17 @@ begin
   if LogginInfo.Format=HttpLoggingTypeNCSA then
     aLogFields := [hlfDate..hlfSubStatus];
   LogginInfo.Fields := ULONG(aLogFields);
-  //LogginInfo.Fields := HTTP_LOG_FIELD_TIME or HTTP_LOG_FIELD_CLIENT_IP;
-  LogginInfo.RolloverType := HttpLoggingRolloverHourly;
+  LogginInfo.RolloverType := aRolloverType;
+  if aRolloverType=HttpLoggingRolloverSize then
+    LogginInfo.RolloverSize := aRolloverSize;
 
-  hr := HttpSetUrlGroupProperty(fUrlGroupID, HttpServerLoggingProperty,
-      @LogginInfo, SizeOf(LogginInfo));
-  HttpCheck(hr);
-
-//  hr := HttpSetServerSessionProperty(fServerSessionID, HttpServerLoggingProperty,
+//  hr := HttpSetUrlGroupProperty(fUrlGroupID, HttpServerLoggingProperty,
 //      @LogginInfo, SizeOf(LogginInfo));
 //  HttpCheck(hr);
+
+  hr := HttpSetServerSessionProperty(fServerSessionID, HttpServerLoggingProperty,
+      @LogginInfo, SizeOf(LogginInfo));
+  HttpCheck(hr);
   fLoggined := True;
 end;
 
@@ -1863,7 +1834,6 @@ procedure TPnHttpSysServer.LogStop;
 begin
   fLoggined := False;
 end;
-
 { public functions end ===== }
 
 

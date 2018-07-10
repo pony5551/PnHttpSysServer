@@ -38,7 +38,8 @@ begin
   fServer.RegisterCompress(CompressDeflate);
   fServer.OnRequest := Process;
   fServer.HTTPQueueLength := 100000;
-  fServer.MaxConnections := 100000;
+//  fServer.MaxConnections := 0;
+//  fServer.MaxBandwidth := 0;
   aFilePath := Format('%sw3log',[ExeVersion.ProgramFilePath]);
   fServer.LogStart(aFilePath);
   fServer.Start;
