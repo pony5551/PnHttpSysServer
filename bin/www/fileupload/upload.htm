@@ -1,0 +1,118 @@
+﻿<html>
+<body>
+<script src="/external/jquery/jquery.js"></script>
+<script language="javascript">
+
+var theUniqueID= 0;
+var iTimerID=null;
+
+function UpProcessBar(){
+	try {
+		$.ajax({
+			type: 'GET',
+			url: '/fileupload/getprocess.asp?processid=' + theUniqueID,
+			dataType: 'json',
+			cache: false,
+			timeout: 10000,
+			success: function(Obj) {
+
+				$("#bar1").css('display','block');
+				$("#PercentDone").css('width',Obj.Percentage);
+				$("#PercentDoneV").html(Obj.Percentage);
+				$("#ElapsedTime").html(Obj.ElapsedTime);
+				$("#TimeLeft").html(Obj.TimeLeft);
+				$("#SizeCompleted").html(Obj.UploadedBytes);
+				$("#TotalSize").html(Obj.TotalBytes);
+				$("#TransferRate").html(Obj.TransferRate);
+				
+
+				if (Obj.ReadyState=='complete') {
+					if (iTimerID != null)
+						clearTimeout(iTimerID)
+					iTimerID = null;	
+
+					$("#PercentDone").css('width','100%');
+					alert("上传结束，服务器处理中...");
+				}
+			},
+			error: function(XMLHttpRequest, textStatus, errorThrown){
+			}
+		});
+		iTimerID = setTimeout("UpProcessBar()", 1000);
+	} catch(e){}
+}
+
+
+//让数据提交的同时执行显示进度条的函数
+function UploadData(){
+	theUniqueID = (new Date()).getTime() % 1000000000;
+
+	// 清除原始数据
+	$("#PercentDone").css('width','0%');
+	$("#PercentDoneV").html("0%");
+	$("#ElapsedTime").html("");
+	$("#TimeLeft").html("");
+	$("#SizeCompleted").html("");
+	$("#TotalSize").html("");
+	$("#TransferRate").html("");
+
+	$("#myform").attr("action", "/fileupload/upload.asp?processid=" + theUniqueID);
+	$("#myform").attr("target", "upload");
+	$("#myform").submit();
+
+	//开始执行反映上传情况的函数
+	UpProcessBar();
+}
+
+
+function CacelUpload(){
+	upload.location.href = "about:blank";
+	if (iTimerID != null)
+		clearTimeout(iTimerID)
+	iTimerID = null;	
+	$("#bar1").css('display','');
+}
+
+</script>
+
+<base target="_blank">
+<form id="myform" name="myform" method="post" action="/fileupload/upload.asp" enctype="multipart/form-data" target="upload">
+<h2>PnHttpSysServer上传带进度条 </h2>
+<HR>
+上传测试：<BR>
+<input type="file" name="filefield1">(请上传小于10G的文件)<br>
+<input type="button" value="上传" onclick="UploadData()">
+<input type="button" value="取消上传" onclick="CacelUpload()"><br>
+<div id="bar1" style="display:">
+	<table border="0" width="100%">
+	  <tr>
+		<td><b>传送:</b></td>
+	  </tr>
+	  <tr bgcolor="#999999">
+		<td>
+		  <table border="0" width="" cellspacing="1" bgcolor="#0033FF" id="PercentDone">
+			<tr>
+			  <td id="PercentDoneV">&nbsp;</td>
+			</tr>
+		  </table>
+		</td>
+	  </tr>
+	  <tr>
+		<td>
+			<table border="0" cellpadding="0" cellspacing="0">
+				<tr><td>总 大 小:&nbsp</td><td id="TotalSize"></td></tr>
+				<tr><td>已经上传:&nbsp</td><td id="SizeCompleted"></td></tr>
+				<tr><td>平均速率:</td><td id="TransferRate"></td></tr>
+				<tr><td>使用时间:</td><td id="ElapsedTime"></td></tr>
+				<tr><td>剩余时间:</td><td id="TimeLeft"></td></tr>
+			</table>
+		</td>
+	  </tr>
+	</table>
+</div>
+<iframe name="upload" style="width:100%"></iframe>
+</form>
+</body>
+
+</html>
+
