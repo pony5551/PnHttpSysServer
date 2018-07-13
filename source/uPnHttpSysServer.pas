@@ -25,7 +25,7 @@ const
     {$endif MSWINDOWS};
 
   XSERVERNAME = 'PnHttpSysServer';
-  XPOWEREDPROGRAM = XSERVERNAME + ' 0.9.5b';
+  XPOWEREDPROGRAM = XSERVERNAME + ' 0.9.6';
   XPOWEREDNAME = 'X-Powered-By';
   XPOWEREDVALUE = XPOWEREDPROGRAM + ' ';
 
@@ -45,7 +45,6 @@ type
   TPerHttpIoData = record
     Overlapped: TOverlapped;
     IoData: TPnHttpServerContext;
-    //Buffer: array of Byte;
     BytesRead: Cardinal;
     Action: THttpIoAction;
     hFile: THandle;
@@ -53,11 +52,6 @@ type
 
   TPnHttpSysServer = class;
 
-  /// http.sys API 2.0 fields used for server-side authentication
-  // - as used by THttpApiServer.SetAuthenticationSchemes/AuthenticationSchemes
-  // - match low-level HTTP_AUTH_ENABLE_* constants as defined in HTTP 2.0 API
-  THttpApiRequestAuthentications = set of (
-    haBasic, haDigest, haNtlm, haNegotiate, haKerberos);
 
   /// the server-side available authentication schemes
   // - as used by THttpServerRequest.AuthenticationStatus
@@ -77,7 +71,6 @@ type
     fReqBufLen: Cardinal;
     fReq: PHTTP_REQUEST;
     fReqBodyBuf: array of Byte;
-    fAuthenticationSchemes: THttpApiRequestAuthentications;
 
     fURL, fMethod, fInHeaders, fInContent, fInContentType: SockString;
     fInFileUpload: Boolean;
@@ -90,17 +83,17 @@ type
     fInContentEncoding, fInAcceptEncoding, fRange: SockString;
 
     fResp: HTTP_RESPONSE;
+    fLogFieldsData: HTTP_LOG_FIELDS_DATA;
     fOutContent, fOutContentType, fOutCustomHeaders: SockString;
     fOutStatusCode: Cardinal;
     fConnectionID: Int64;
     fUseSSL: Boolean;
     fAuthenticationStatus: THttpServerRequestAuthentication;
     fAuthenticatedUser: SockString;
-
     fInCompressAccept: THttpSocketCompressSet;
-
     fRespSent: Boolean;
 
+    procedure SetReqBuf(AValue: SockString);
     function _NewIoData: PPerHttpIoData; inline;
     procedure _FreeIoData(P: PPerHttpIoData); inline;
     procedure SetHeaders(Resp: PHTTP_RESPONSE; P: PAnsiChar; var UnknownHeaders: HTTP_UNKNOWN_HEADERs); //inline;
@@ -117,6 +110,8 @@ type
 
     /// PnHttpSysServer
     property Server: TPnHttpSysServer read fServer;
+    ///fReqBuf
+    property ReqBuf: SockString read fReqBuf write SetReqBuf;
     /// URI与请求参数
     property URL: SockString read fURL;
     /// 请求方法(GET/POST...)
@@ -156,6 +151,12 @@ type
   end;
 
 
+  /// http.sys API 2.0 fields used for server-side authentication
+  // - as used by THttpApiServer.SetAuthenticationSchemes/AuthenticationSchemes
+  // - match low-level HTTP_AUTH_ENABLE_* constants as defined in HTTP 2.0 API
+  THttpApiRequestAuthentications = set of (
+    haBasic, haDigest, haNtlm, haNegotiate, haKerberos);
+
   TOnHttpServerRequestBase = function(Ctxt: TPnHttpServerContext): Cardinal of object;
 
   //主响应处理事件,事件中可以完成Header与body的内容处理
@@ -193,6 +194,7 @@ type
     //服务名称
     fServerName: SockString;
     fLoggined: Boolean;
+    fAuthenticationSchemes: THttpApiRequestAuthentications;
     //接收上传数据块大小
     fReceiveBufferSize: Cardinal;
     /// 所有注册压缩算法的列表
@@ -202,19 +204,16 @@ type
     /// 所有AddUrl注册URL的列表
     fRegisteredUnicodeUrl: array of SynUnicode;
 
-
     FHttpApiVersion: HTTPAPI_VERSION;
     FServerSessionID: HTTP_SERVER_SESSION_ID;
     FUrlGroupID: HTTP_URL_GROUP_ID;
     FReqQueueHandle: THandle;
     FCompletionPort: THandle;
 
-
     FContextObjPool: TPNObjectPool;
     FIoThreadsCount: Integer;
     FContextObjCount: Integer;
     FIoThreads: TArray<TIoEventThread>;
-
 
     /// <summary>
     /// 取得注册URL
@@ -280,7 +279,6 @@ type
     function DoBeforeRequest(Ctxt: TPnHttpServerContext): Cardinal;
     function DoAfterRequest(Ctxt: TPnHttpServerContext): Cardinal;
     procedure DoAfterResponse(Ctxt: TPnHttpServerContext);
-
     /// IoEvent Handle functions
     procedure _HandleRequestHead(AContext: TPnHttpServerContext);
     procedure _HandleRequestBody(AContext: TPnHttpServerContext); //inline;
@@ -332,6 +330,14 @@ type
       aLogFields: THttpApiLogFields = [hlfDate..hlfSubStatus];
       aFlags: THttpApiLoggingFlags = [hlfUseUTF8Conversion]);
     procedure LogStop;
+
+    /// 启用HTTP API 2.0服务器端身份验证
+    //参见https://msdn.microsoft.com/en-us/library/windows/desktop/aa364452
+    procedure SetAuthenticationSchemes(schemes: THttpApiRequestAuthentications;
+      const DomainName: SynUnicode=''; const Realm: SynUnicode='');
+    /// read-only access to HTTP API 2.0 server-side enabled authentication schemes
+    property AuthenticationSchemes: THttpApiRequestAuthentications
+      read fAuthenticationSchemes;
 
     //events
     property OnThreadStart: TNotifyThreadEvent read fOnThreadStart write SetOnThreadStart;
@@ -391,7 +397,6 @@ begin
   fReqPerHttpIoData^.IoData := Self;
   SetLength(fReqBuf,RequestBufferLen);
   fReq := Pointer(fReqBuf);
-
   inherited Create;
 end;
 
@@ -428,11 +433,13 @@ var
   Msg: string;
   OutStatus,
   OutContent: SockString;
+  pLogFieldsData: Pointer;
   dataChunk: HTTP_DATA_CHUNK;
 
   BytesSend: Cardinal;
   flags: Cardinal;
   hr: HRESULT;
+  LOverlapped: POverlapped;
 begin
   //if fRespSent then Exit;
   fRespSent := True;
@@ -442,7 +449,44 @@ begin
     OutStatus := StatusCodeToReason(StatusCode);
     fResp.pReason := PAnsiChar(OutStatus);
     fResp.ReasonLength := Length(OutStatus);
-    //CurrentLog^.ProtocolStatus := StatusCode;
+
+    // update log information 日志
+    if (fServer.Loggined) and (fServer.FHttpApiVersion.HttpApiMajorVersion>=2) then
+    begin
+      FillChar(fLogFieldsData, SizeOf(fLogFieldsData), 0);
+      with fReq^,fLogFieldsData do
+      begin
+        MethodNum := Verb;
+        UriStemLength := CookedUrl.AbsPathLength;
+        UriStem := CookedUrl.pAbsPath;
+        with Headers.KnownHeaders[HttpHeaderUserAgent] do
+        begin
+          UserAgentLength := RawValueLength;
+          UserAgent := pRawValue;
+        end;
+        with Headers.KnownHeaders[HttpHeaderHost] do
+        begin
+          HostLength := RawValueLength;
+          Host := pRawValue;
+        end;
+        with Headers.KnownHeaders[HttpHeaderReferer] do
+        begin
+          ReferrerLength := RawValueLength;
+          Referrer := pRawValue;
+        end;
+        ProtocolStatus := fResp.StatusCode;
+        ClientIp := pointer(Self.fRemoteIP);
+        ClientIpLength := length(Self.fRemoteIP);
+        Method := pointer(Self.fMethod);
+        MethodLength := length(Self.fMethod);
+        UserName := pointer(Self.fAuthenticatedUser);
+        UserNameLength := Length(Self.fAuthenticatedUser);
+      end;
+      pLogFieldsData := @fLogFieldsData;
+    end
+    else
+      pLogFieldsData := nil;
+
     Msg := format(
       '<html><body style="font-family:verdana;"><h1>Server Error %d: %s</h1><p>',
       [StatusCode,OutStatus]);
@@ -469,6 +513,7 @@ begin
     fReqPerHttpIoData^.BytesRead := 0;
     fReqPerHttpIoData^.Action := IoResponseEnd;
     //debugEx('IoResponseEnd2', []);
+    LOverlapped := POverlapped(fReqPerHttpIoData);
 
     flags := 0;
     BytesSend := 0;
@@ -481,8 +526,8 @@ begin
         BytesSend,
         nil,
         0,
-        POverlapped(fReqPerHttpIoData),
-        nil);
+        LOverlapped,
+        pLogFieldsData);
     //Assert((hr=NO_ERROR) or (hr=ERROR_IO_PENDING));
     if (hr<>NO_ERROR) and (hr<>ERROR_IO_PENDING) then
       HttpCheck(hr);
@@ -498,7 +543,6 @@ function TPnHttpServerContext.SendResponse: Boolean;
 var
   OutStatus,
   OutContentEncoding: SockString;
-  LogFieldsData: HTTP_LOG_FIELDS_DATA;
   pLogFieldsData: Pointer;
   Heads: HTTP_UNKNOWN_HEADERs;
   dataChunk: HTTP_DATA_CHUNK;
@@ -506,6 +550,7 @@ var
   BytesSend: Cardinal;
   flags: Cardinal;
   hr: HRESULT;
+  LOverlapped: POverlapped;
 begin
   if fRespSent then Exit(True);
 
@@ -522,8 +567,8 @@ begin
   // update log information 日志
   if (fServer.Loggined) and (fServer.FHttpApiVersion.HttpApiMajorVersion>=2) then
   begin
-    FillChar(LogFieldsData, SizeOf(LogFieldsData), 0);
-    with fReq^,LogFieldsData do
+    FillChar(fLogFieldsData, SizeOf(fLogFieldsData), 0);
+    with fReq^,fLogFieldsData do
     begin
       MethodNum := Verb;
       UriStemLength := CookedUrl.AbsPathLength;
@@ -551,7 +596,7 @@ begin
       UserName := pointer(Self.fAuthenticatedUser);
       UserNameLength := Length(Self.fAuthenticatedUser);
     end;
-    pLogFieldsData := @LogFieldsData;
+    pLogFieldsData := @fLogFieldsData;
   end
   else
     pLogFieldsData := nil;
@@ -612,6 +657,7 @@ begin
     fReqPerHttpIoData^.BytesRead := 0;
     fReqPerHttpIoData^.Action := IoResponseEnd;
     //debugEx('IoResponseEnd0', []);
+    LOverlapped := POverlapped(fReqPerHttpIoData);
 
     flags := 0;
     BytesSend := 0;
@@ -624,7 +670,7 @@ begin
         BytesSend,
         nil,
         0,
-        POverlapped(fReqPerHttpIoData),
+        LOverlapped,
         pLogFieldsData);
     //debugEx('SendResponse: %d', [hr]);
     //Assert((hr=NO_ERROR) or (hr=ERROR_IO_PENDING));
@@ -634,6 +680,12 @@ begin
       SendError(STATUS_NOTACCEPTABLE,SysErrorMessage(hr));
   end;
 
+end;
+
+procedure TPnHttpServerContext.SetReqBuf(AValue: SockString);
+begin
+  fReqBuf := AValue;
+  fReq := Pointer(fReqBuf);
 end;
 
 function TPnHttpServerContext._NewIoData: PPerHttpIoData;
@@ -754,7 +806,7 @@ var
   BytesSend: Cardinal;
   flags: Cardinal;
   hr: HRESULT;
-
+  LOverlapped: POverlapped;
 
   procedure SendResp;
   begin
@@ -762,6 +814,7 @@ var
     fReqPerHttpIoData^.BytesRead := 0;
     fReqPerHttpIoData^.Action := IoResponseEnd;
     //debugEx('IoResponseEnd1', []);
+    LOverlapped := POverlapped(fReqPerHttpIoData);
 
     //flags := 0;
     BytesSend := 0;
@@ -774,7 +827,7 @@ var
         BytesSend,
         nil,
         0,
-        POverlapped(fReqPerHttpIoData),
+        LOverlapped,
         pLogFieldsData);
     //Assert((hr=NO_ERROR) or (hr=ERROR_IO_PENDING));
     //if not ((hr=NO_ERROR) or (hr=ERROR_IO_PENDING)) then
@@ -951,7 +1004,6 @@ var
   LUri: SynUnicode;
   LQueueName: SynUnicode;
   Binding: HTTP_BINDING_INFO;
-  hNewCompletionPort: THandle;
 begin
   inherited Create;
   fServerName := XSERVERNAME+' ('+XPOWEREDOS+')';
@@ -1007,11 +1059,6 @@ begin
     HttpCheck(hr);
   end;
 
-  //Create IO Complet
-  FCompletionPort := CreateIoCompletionPort(INVALID_HANDLE_VALUE, 0, 0, 0);
-  hNewCompletionPort := CreateIoCompletionPort(FReqQueueHandle, FCompletionPort, ULONG_PTR(FReqQueueHandle), 0);
-  Assert(FCompletionPort=hNewCompletionPort, 'CreateIoCompletionPort Error.');
-
   FIoThreadsCount := AIoThreadsCount;
   FContextObjCount := AContextObjCount;
   FContextObjPool := TPNObjectPool.Create;
@@ -1022,13 +1069,6 @@ var
   I: Integer;
 begin
   Stop;
-
-  //Close IO Complet
-  if FCompletionPort<>0 then
-  begin
-    CloseHandle(FCompletionPort);
-    FCompletionPort := 0;
-  end;
 
   if FReqQueueHandle<>0 then
   begin
@@ -1388,6 +1428,7 @@ begin
   if Assigned(fOnAfterResponse) then
     fOnAfterResponse(Ctxt);
 end;
+
 
 procedure TPnHttpSysServer._HandleRequestHead(AContext: TPnHttpServerContext);
 type
@@ -1836,9 +1877,15 @@ end;
 procedure TPnHttpSysServer.Start;
 var
   I: Integer;
+  hNewCompletionPort: THandle;
 begin
   if (FIoThreads <> nil) then
     Exit;
+
+  //Create IO Complet
+  FCompletionPort := CreateIoCompletionPort(INVALID_HANDLE_VALUE, 0, 0, 0);
+  hNewCompletionPort := CreateIoCompletionPort(FReqQueueHandle, FCompletionPort, ULONG_PTR(FReqQueueHandle), 0);
+  Assert(FCompletionPort=hNewCompletionPort, 'CreateIoCompletionPort Error.');
 
   FContextObjPool.FOnCreateObject := OnContextCreateObject;
   FContextObjPool.InitObjectPool(FContextObjCount);
@@ -1873,6 +1920,13 @@ begin
   debugEx('PNPool2 new: %d, free: %d', [FContextObjPool.FObjectRes.FNewObjectCount, FContextObjPool.FObjectRes.FFreeObjectCount]);
   FContextObjPool.FreeAllObjects;
   debugEx('System3 new: %d, free: %d', [ServerContextNewCount, ServerContextFreeCount]);
+
+  //Close IO Complet
+  if FCompletionPort<>0 then
+  begin
+    CloseHandle(FCompletionPort);
+    FCompletionPort := 0;
+  end;
 end;
 
 procedure TPnHttpSysServer.RegisterCompress(aFunction: THttpSocketCompress;
@@ -1947,6 +2001,38 @@ end;
 procedure TPnHttpSysServer.LogStop;
 begin
   fLoggined := False;
+end;
+
+procedure TPnHttpSysServer.SetAuthenticationSchemes(schemes: THttpApiRequestAuthentications;
+  const DomainName, Realm: SynUnicode);
+var
+  authInfo: HTTP_SERVER_AUTHENTICATION_INFO;
+  hr: HRESULT;
+begin
+  if FHttpApiVersion.HttpApiMajorVersion<2 then
+    HttpCheck(ERROR_OLD_WIN_VERSION);
+  fAuthenticationSchemes := schemes;
+  FillChar(authInfo,SizeOf(authInfo),0);
+  authInfo.Flags := 1;
+  authInfo.AuthSchemes := byte(schemes);
+  authInfo.ReceiveMutualAuth := true;
+  if haBasic in schemes then
+    with authInfo.BasicParams do
+    begin
+      RealmLength := Length(Realm);
+      Realm := pointer(Realm);
+    end;
+  if haDigest in schemes then
+    with authInfo.DigestParams do
+    begin
+      DomainNameLength := Length(DomainName);
+      DomainName := pointer(DomainName);
+      RealmLength := Length(Realm);
+      Realm := pointer(Realm);
+    end;
+  hr := HttpSetUrlGroupProperty(fUrlGroupID, HttpServerAuthenticationProperty,
+      @authInfo, SizeOf(authInfo));
+  HttpCheck(hr);
 end;
 { public functions end ===== }
 

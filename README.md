@@ -30,3 +30,5 @@ ms httpapi server with iocp
 0.9.4b 测试版，调整了启动日志的参数,整理了部分代码与注释微调响应静态文件
 
 0.9.5b 增加OnCallWorkItemEvent事件,可以另开工作线程处理任务,另修正DoAfterResponse的出发位置，增加上传文件demo代码(文件块处理代码未完成)
+
+0.9.6b 调整Start与Stop的代码，修正SendErr不存日志的问题

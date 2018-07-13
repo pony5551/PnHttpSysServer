@@ -5,7 +5,7 @@ program HttpSysServerDemo;
 {$R *.res}
 
 //使用Synopse优化字符copy
-//{$I Synopse.inc}
+{$I Synopse.inc}
 
 uses
   Winapi.Windows,
@@ -18,130 +18,21 @@ uses
   uPnHttpSys.Comm,
   uPnHttpSys.Api,
   uPNHttpSysServer,
+  uPNSysThreadPool,
   uPNDebug,
   qjson,
-  qworker;
-
-
-type
-  TUpBuf = record
-    buf: array of AnsiChar;
-    buflen: Cardinal;
-  end;
-
-  //文件上传进度
-  PUploadProcessInfo = ^TUploadProcessInfo;
-  TUploadProcessInfo = record
-  public
-    TotalBytes: Int64;
-    UploadedBytes: Int64;
-    StartTime: Int64;
-    LastActivity: Int64;
-    ReadyState: string;
-    boundaryStr: SockString;
-    bufs: array of TUpBuf;
-
-    procedure InitObj;
-    //已上传秒数
-    function GetElapsedSeconds: Int64;
-    //已上传时间
-    function GetElapsedTime: string;
-    //传输速率
-    function GetTransferRate: string;
-    //完成百分比
-    function GetPercentage: string;
-    //估计剩余时间
-    function TimeLeft: string;
-  end;
-
-
-{ TUploadProcessInfo }
-procedure TUploadProcessInfo.InitObj;
-begin
-  TotalBytes := 0;
-  UploadedBytes := 0;
-  StartTime := GetTickCount64;
-  LastActivity := GetTickCount64;
-  ReadyState := 'uninitialized'; //uninitialized,loading,loaded,interactive,complete
-end;
-
-function TUploadProcessInfo.GetElapsedSeconds: Int64;
-begin
-  Result := (GetTickCount64 - StartTime) div 1000;
-end;
-
-function TUploadProcessInfo.GetElapsedTime: string;
-var
-  LElapsedSeconds: Int64;
-begin
-  LElapsedSeconds := GetElapsedSeconds;
-  if LElapsedSeconds>3600 then
-  begin
-    Result := Format('%d 时 %d 分 %d 秒', [LElapsedSeconds div 3600, (LElapsedSeconds mod 3600) div 60, LElapsedSeconds mod 60]);
-  end
-  else if LElapsedSeconds>60 then
-  begin
-    Result := Format('%d 分 %d 秒', [LElapsedSeconds div 60, LElapsedSeconds mod 60]);
-  end
-  else begin
-    Result := Format('%d 秒', [LElapsedSeconds mod 60]);
-  end;
-end;
-
-function TUploadProcessInfo.GetTransferRate: string;
-var
-  LElapsedSeconds: Int64;
-begin
-  LElapsedSeconds := GetElapsedSeconds;
-  if LElapsedSeconds>0 then
-  begin
-    Result := Format('%.2f K/秒', [UploadedBytes/1024/LElapsedSeconds]);
-  end
-  else
-    Result := '0 K/秒';
-end;
-
-function TUploadProcessInfo.GetPercentage: string;
-begin
-  if TotalBytes>0 then
-    Result := Format('%.2f', [UploadedBytes / TotalBytes * 100])+'%'
-  else
-    Result := '0%';
-end;
-
-function TUploadProcessInfo.TimeLeft: string;
-var
-  SecondsLeft: Int64;
-begin
-  if UploadedBytes>0 then
-  begin
-    SecondsLeft := GetElapsedSeconds * (TotalBytes div UploadedBytes - 1);
-    if SecondsLeft > 3600 then
-    begin
-      Result := Format('%d 时 %d 分 %d 秒', [SecondsLeft div 3600, (SecondsLeft mod 3600) div 60, SecondsLeft mod 60]);
-    end
-    else if SecondsLeft > 60 then
-    begin
-      Result := Format('%d 分 %d 秒', [SecondsLeft div 60, SecondsLeft mod 60]);
-    end
-    else begin
-      Result := Format('%d 秒', [SecondsLeft mod 60]);
-    end;
-  end
-  else begin
-    Result := '未知';
-  end;
-end;
+  uUpload in 'uUpload.pas';
 
 
 type
   TTestServer = class
   protected
+    fWinThPool: TWinThreadPool;
     fUpProcessLock: TPNCriticalSection;
     fUpProcessList: TObjectDictionary<string,PUploadProcessInfo>;
     fPath: TFileName;
     fServer: TPnHttpSysServer;
-    procedure DoWorkItemJob(AJob: PQJob);
+    procedure WorkItemCallBack(Sender: TObject);
     procedure CallWorkItem(Ctxt: TPnHttpServerContext; AFileUpload: Boolean;
       AReadBuf: PAnsiChar; AReadBufLen: Cardinal);
     function Process(Ctxt: TPnHttpServerContext; AFileUpload: Boolean;
@@ -157,13 +48,15 @@ constructor TTestServer.Create(const Path: TFileName);
 var
   aFilePath: string;
 begin
+  fWinThPool := TWinThreadPool.Create;
+  fWinThPool.Start;
   fUpProcessLock := TPNCriticalSection.Create;
   fUpProcessList := TObjectDictionary<string,PUploadProcessInfo>.Create();
   fPath := IncludeTrailingPathDelimiter(Path);
-  fServer := TPnHttpSysServer.Create(0,1000);
+  fServer := TPnHttpSysServer.Create(1,1000);
   fServer.AddUrl('/','8080',false,'+',true);
   fServer.RegisterCompress(CompressDeflate);
-  //fServer.OnCallWorkItemEvent := CallWorkItem;
+//  fServer.OnCallWorkItemEvent := CallWorkItem;
   fServer.OnRequest := Process;
   fServer.HTTPQueueLength := 100000;
 //  fServer.MaxConnections := 0;
@@ -179,14 +72,15 @@ begin
   fServer.Free;
   fUpProcessList.Free;
   fUpProcessLock.Free;
+  fWinThPool.Free;
   inherited;
 end;
 
-procedure TTestServer.DoWorkItemJob(AJob: PQJob);
+procedure TTestServer.WorkItemCallBack(Sender: TObject);
 var
   Ctxt: TPnHttpServerContext;
 begin
-  Ctxt := TPnHttpServerContext(AJob.Data);
+  Ctxt := TPnHttpServerContext(Sender);
 
   //Ctxt.OutContent := Format('hello call %d', [GetCurrentThreadId]);
   Ctxt.OutContent := 'hello call';
@@ -196,11 +90,12 @@ begin
   Ctxt.SendResponse;
 end;
 
+
 procedure TTestServer.CallWorkItem(Ctxt: TPnHttpServerContext; AFileUpload: Boolean; AReadBuf: PAnsiChar; AReadBufLen: Cardinal);
 begin
   //另开线程处理，不阻塞Io线程，会一定程度降低整体效率
   //如果服务器需要处理复杂算法或大文件处理等运算时间比较长时建议使用
-  Workers.Post(DoWorkItemJob, Ctxt, False, jdfFreeByUser);
+  fWinThPool.QueueUserWorkItem(WorkItemCallBack, Ctxt);
 end;
 
 
@@ -220,7 +115,6 @@ var
   desjson: TQJson;
   sUrls: TArray<string>;
   sUrlsList: TStringList;
-  up_path,
   up_processid: string;
   pUpInfo: PUploadProcessInfo;
   bufsCount,
@@ -269,23 +163,8 @@ var
   end;
 
 
-  procedure hrefCompute;
+  procedure upload_asp;
   begin
-    SRName := StringToUTF8(SR.Name);
-    href := FN+StringReplaceChars(SRName,'\','/');
-  end;
-
-begin
-  //writeln(Ctxt.Method,' ',Ctxt.URL);
-  if IdemPChar(pointer(Ctxt.URL),'/hello') then begin
-    Ctxt.OutContent := 'hello world';
-    Ctxt.OutContentType := HTML_CONTENT_TYPE;
-    result := 200;
-    Exit;
-  end
-  //上传文件
-  else if IdemPChar(pointer(Ctxt.URL),'/fileupload/upload.asp') then begin
-
       sUrlsList := TStringList.Create;
       try
           sUrls := string(Ctxt.URL).Split(['?']);
@@ -296,7 +175,6 @@ begin
 
           //=====上传处理开始=====
           if AFileUpload then begin
-            up_path := sUrlsList.Values['path'];
             up_processid := sUrlsList.Values['processid'];
 
 
@@ -340,12 +218,12 @@ begin
               end;
 
 
-              //处理上传数据
-              for I := 0 to Length(pUpInfo^.bufs)-1 do
-              begin
-
-
-              end;
+//              //处理上传数据
+//              for I := 0 to Length(pUpInfo^.bufs)-1 do
+//              begin
+//
+//
+//              end;
 
               //上传完成
               Ctxt.OutContent := StringToUTF8(Format('上传完成: %d/%d', [Ctxt.InContentLength, Ctxt.InContentLengthRead]));
@@ -413,12 +291,11 @@ begin
       finally
         sUrlsList.Free;
       end;
+  end;
 
-    Exit;
-  end
-  //上传进度
-  else if IdemPChar(pointer(Ctxt.URL),'/fileupload/getprocess.asp') then begin
 
+  procedure getprocess_asp;
+  begin
       sUrlsList := TStringList.Create;
       try
           sUrls := string(Ctxt.URL).Split(['?']);
@@ -474,6 +351,34 @@ begin
       finally
         sUrlsList.Free;
       end;
+  end;
+
+
+  procedure hrefCompute;
+  begin
+    SRName := StringToUTF8(SR.Name);
+    href := FN+StringReplaceChars(SRName,'\','/');
+  end;
+
+begin
+  //writeln(Ctxt.Method,' ',Ctxt.URL);
+  if IdemPChar(pointer(Ctxt.URL),'/hello') then begin
+    Ctxt.OutContent := 'hello world';
+    Ctxt.OutContentType := HTML_CONTENT_TYPE;
+    result := 200;
+    Exit;
+  end
+  //上传文件
+  else if IdemPChar(pointer(Ctxt.URL),'/fileupload/upload.asp') then begin
+
+    upload_asp;
+
+    Exit;
+  end
+  //上传进度
+  else if IdemPChar(pointer(Ctxt.URL),'/fileupload/getprocess.asp') then begin
+
+    getprocess_asp;
 
     Exit;
   end;
