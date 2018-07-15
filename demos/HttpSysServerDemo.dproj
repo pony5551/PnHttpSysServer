@@ -1,6 +1,6 @@
 ﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
-        <ProjectGuid>{8BBB1275-D176-48F9-9B53-9EFA0EFD0BB3}</ProjectGuid>
+        <ProjectGuid>{4BA7FF9C-D1F1-4E7E-8FB2-44988557FE5F}</ProjectGuid>
         <ProjectVersion>18.4</ProjectVersion>
         <FrameworkType>None</FrameworkType>
         <MainSource>HttpSysServerDemo.dpr</MainSource>

@@ -5,7 +5,7 @@ program HttpSysServerDemo;
 {$R *.res}
 
 //使用Synopse优化字符copy
-{$I Synopse.inc}
+//{$I Synopse.inc}
 
 uses
   Winapi.Windows,
@@ -53,14 +53,12 @@ begin
   fUpProcessLock := TPNCriticalSection.Create;
   fUpProcessList := TObjectDictionary<string,PUploadProcessInfo>.Create();
   fPath := IncludeTrailingPathDelimiter(Path);
-  fServer := TPnHttpSysServer.Create(1,1000);
+  fServer := TPnHttpSysServer.Create(0,1000);
   fServer.AddUrl('/','8080',false,'+',true);
   fServer.RegisterCompress(CompressDeflate);
-//  fServer.OnCallWorkItemEvent := CallWorkItem;
+  //fServer.OnCallWorkItemEvent := CallWorkItem;
   fServer.OnRequest := Process;
   fServer.HTTPQueueLength := 100000;
-//  fServer.MaxConnections := 0;
-//  fServer.MaxBandwidth := 0;
   aFilePath := Format('%sw3log',[ExeVersion.ProgramFilePath]);
   fServer.LogStart(aFilePath);
   fServer.Start;
@@ -82,7 +80,6 @@ var
 begin
   Ctxt := TPnHttpServerContext(Sender);
 
-  //Ctxt.OutContent := Format('hello call %d', [GetCurrentThreadId]);
   Ctxt.OutContent := 'hello call';
   Ctxt.OutContentType := HTML_CONTENT_TYPE;
   Ctxt.OutStatusCode := 200;
