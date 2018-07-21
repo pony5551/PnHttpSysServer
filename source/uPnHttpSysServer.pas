@@ -25,7 +25,7 @@ const
     {$endif MSWINDOWS};
 
   XSERVERNAME = 'PnHttpSysServer';
-  XPOWEREDPROGRAM = XSERVERNAME + ' 0.9.7';
+  XPOWEREDPROGRAM = XSERVERNAME + ' 0.9.8';
   XPOWEREDNAME = 'X-Powered-By';
   XPOWEREDVALUE = XPOWEREDPROGRAM + ' ';
 
@@ -106,6 +106,7 @@ type
     constructor Create(AServer: TPnHttpSysServer);
     destructor Destroy; override;
     procedure InitObject; override;
+    procedure SendStream(const AStream: TStream; const AContentType: SockString = ''); inline;
     procedure SendError(StatusCode: Cardinal; const ErrorMsg: string; E: Exception = nil);
     function SendResponse: Boolean; inline;
 
@@ -187,6 +188,8 @@ type
     fOnBeforeRequest: TOnHttpServerRequestBase;
     fOnAfterRequest: TOnHttpServerRequestBase;
     fOnAfterResponse: TOnHttpServerRequestBase;
+    fReqCount: Int64;
+    fRespCount: Int64;
     fMaximumAllowedContentLength: Cardinal;
     //服务名称
     fServerName: SockString;
@@ -346,6 +349,8 @@ type
     property OnAfterRequest: TOnHttpServerRequestBase  read fOnAfterRequest write SetOnAfterRequest;
     property OnAfterResponse: TOnHttpServerRequestBase read fOnAfterResponse write SetOnAfterResponse;
 
+    property ReqCount: Int64 read fReqCount;
+    property RespCount: Int64 read fRespCount;
     property MaximumAllowedContentLength: Cardinal read fMaximumAllowedContentLength
       write fMaximumAllowedContentLength;
     property ServerName: SockString read fServerName write fServerName;
@@ -357,6 +362,7 @@ type
     property IsRuning: Boolean read GetIsRuning;
 
   published
+    property ContextObjPool: TPNObjectPool read FContextObjPool;
     /// 返回此服务器实例上的注册URL列表
     property RegisteredUrl: SynUnicode read GetRegisteredUrl;
     /// HTTP.sys request/response 队列长度
@@ -412,6 +418,7 @@ begin
 
   FillChar(Pointer(@fReqBuf[1])^, SizeOf(fReqBuf), 0);
   fReq := Pointer(fReqBuf);
+  fInContentLength := 0;
 
   fInFileUpload := False;
 
@@ -420,6 +427,13 @@ begin
   fOutStatusCode := 200;
 end;
 
+procedure TPnHttpServerContext.SendStream(const AStream: TStream; const AContentType: SockString);
+begin
+  SetLength(fOutContent, AStream.Size);
+  AStream.Read(PAnsiChar(fOutContent)^, AStream.Size);
+  if Length(AContentType)>0 then
+    fOutContentType := AContentType;
+end;
 
 procedure TPnHttpServerContext.SendError(StatusCode: Cardinal; const ErrorMsg: string; E: Exception);
 const
@@ -645,6 +659,8 @@ begin
         Headers.KnownHeaders[HttpHeaderContentType].RawValueLength := Length(fOutContentType);
         Headers.KnownHeaders[HttpHeaderContentType].pRawValue := PAnsiChar(fOutContentType);
       end;
+
+
     end;
 
     //开始发送
@@ -993,6 +1009,8 @@ begin
   inherited Create;
   fServerName := XSERVERNAME+' ('+XPOWEREDOS+')';
   fLoggined := False;
+  fReqCount := 0;
+  fRespCount := 0;
   //上传文件大小限制,默认2g
   fMaximumAllowedContentLength := 0;
   //fMaximumAllowedContentLength := 1024*1024*1024*2; //2GB
@@ -1434,6 +1452,7 @@ var
 begin
   if (AContext<>nil) then
   begin
+    AtomicIncrement(fReqCount);
     Verbs := VERB_TEXT;
     // parse method and headers
     with AContext do
@@ -1736,8 +1755,9 @@ begin
         fOutStatusCode := AfterStatusCode;
       // send response
       if not fRespSent then
-        if not SendResponse then
-          Exit;
+        SendResponse;
+//        if not SendResponse then
+//          Exit;
     end;
   except
     on E: Exception do
@@ -1748,6 +1768,7 @@ end;
 
 procedure TPnHttpSysServer._HandleResponseEnd(AContext: TPnHttpServerContext);
 begin
+  AtomicIncrement(fRespCount);
   DoAfterResponse(AContext);
   try
     with AContext do
@@ -1760,6 +1781,10 @@ begin
       end;
       if Length(fReqBodyBuf)>1 then
         SetLength(fReqBodyBuf, 0);
+      if Length(fInContent)>0 then
+        SetLength(fInContent, 0);
+      if Length(fOutContent)>0 then
+        SetLength(fOutContent, 0);
     end;
   except
     On E: Exception do

@@ -1,0 +1,60 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <PropertyGroup>
+        <ProjectGuid>{4ADE10E8-12A2-4E02-B60E-52554BF6CD06}</ProjectGuid>
+    </PropertyGroup>
+    <ItemGroup>
+        <Projects Include="2_vcl\PnHttpSysServerMain.dproj">
+            <Dependencies/>
+        </Projects>
+        <Projects Include="1_hello_world\HttpSysServerDemo.dproj">
+            <Dependencies/>
+        </Projects>
+        <Projects Include="3_upload\HttpSysServerUpload.dproj">
+            <Dependencies/>
+        </Projects>
+    </ItemGroup>
+    <ProjectExtensions>
+        <Borland.Personality>Default.Personality.12</Borland.Personality>
+        <Borland.ProjectType/>
+        <BorlandProject>
+            <Default.Personality/>
+        </BorlandProject>
+    </ProjectExtensions>
+    <Target Name="PnHttpSysServerMain">
+        <MSBuild Projects="2_vcl\PnHttpSysServerMain.dproj"/>
+    </Target>
+    <Target Name="PnHttpSysServerMain:Clean">
+        <MSBuild Projects="2_vcl\PnHttpSysServerMain.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="PnHttpSysServerMain:Make">
+        <MSBuild Projects="2_vcl\PnHttpSysServerMain.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="HttpSysServerDemo">
+        <MSBuild Projects="1_hello_world\HttpSysServerDemo.dproj"/>
+    </Target>
+    <Target Name="HttpSysServerDemo:Clean">
+        <MSBuild Projects="1_hello_world\HttpSysServerDemo.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="HttpSysServerDemo:Make">
+        <MSBuild Projects="1_hello_world\HttpSysServerDemo.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="HttpSysServerUpload">
+        <MSBuild Projects="3_upload\HttpSysServerUpload.dproj"/>
+    </Target>
+    <Target Name="HttpSysServerUpload:Clean">
+        <MSBuild Projects="3_upload\HttpSysServerUpload.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="HttpSysServerUpload:Make">
+        <MSBuild Projects="3_upload\HttpSysServerUpload.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="Build">
+        <CallTarget Targets="PnHttpSysServerMain;HttpSysServerDemo;HttpSysServerUpload"/>
+    </Target>
+    <Target Name="Clean">
+        <CallTarget Targets="PnHttpSysServerMain:Clean;HttpSysServerDemo:Clean;HttpSysServerUpload:Clean"/>
+    </Target>
+    <Target Name="Make">
+        <CallTarget Targets="PnHttpSysServerMain:Make;HttpSysServerDemo:Make;HttpSysServerUpload:Make"/>
+    </Target>
+    <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
+</Project>
