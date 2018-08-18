@@ -19,8 +19,7 @@ uses
   uPnHttpSys.Api,
   uPNHttpSysServer,
   uPNSysThreadPool,
-  uPNDebug,
-  qjson;
+  uPNDebug;
 
 type
   TTestServer = class

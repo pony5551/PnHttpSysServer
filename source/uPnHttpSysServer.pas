@@ -25,7 +25,7 @@ const
     {$endif MSWINDOWS};
 
   XSERVERNAME = 'PnHttpSysServer';
-  XPOWEREDPROGRAM = XSERVERNAME + ' 0.9.8';
+  XPOWEREDPROGRAM = XSERVERNAME + ' 0.9.9';
   XPOWEREDNAME = 'X-Powered-By';
   XPOWEREDVALUE = XPOWEREDPROGRAM + ' ';
 
@@ -52,7 +52,6 @@ type
 
   TPnHttpSysServer = class;
 
-
   /// the server-side available authentication schemes
   // - as used by THttpServerRequest.AuthenticationStatus
   // - hraNone..hraKerberos will match low-level HTTP_REQUEST_AUTH_TYPE enum as
@@ -61,42 +60,72 @@ type
     hraNone, hraFailed, hraBasic, hraDigest, hraNtlm, hraNegotiate, hraKerberos);
 
 
+  PPnContextInfo = ^TPnContextInfo;
+  TPnContextInfo = record
+    fReqBodyBuf: array of Byte;
+
+    fURL,
+    fMethod,
+    fInHeaders,
+    fInContent,
+    fInContentType,
+    fRemoteIP: SockString;
+
+    fInContentBufRead: PAnsiChar;
+
+    fInContentLength,
+    fInContentLengthRead: UInt64;
+    fInContentEncoding: SockString;
+
+    fOutContent,
+    fOutContentType,
+    fOutCustomHeaders,
+    fAuthenticatedUser: SockString;
+    fAuthenticationStatus: THttpServerRequestAuthentication;
+  end;
+
   TPnHttpServerContext = class(TPNObject)
   private
     fServer: TPnHttpSysServer;
     //req per io
     fReqPerHttpIoData: PPerHttpIoData;
 
-    fReqBuf: SockString;
+    fReqBuf: array of Byte;
     fReqBufLen: Cardinal;
     fReq: PHTTP_REQUEST;
-    fReqBodyBuf: array of Byte;
-
-    fURL, fMethod, fInHeaders, fInContent, fInContentType: SockString;
-    fInFileUpload: Boolean;
-    fInContentBufRead: PAnsiChar;
-    fRemoteIPHeader, fRemoteIPHeaderUpper: SockString;
-    fRemoteIP: SockString;
-
-    fInContentLength,
-    fInContentLengthRead: UInt64;
-    //fInContentLengthChunk: Cardinal;
-    fInContentEncoding: SockString;
-    fInAcceptEncoding: SockString;
-    fInRange: SockString;
-
     fResp: HTTP_RESPONSE;
-    fOutContent, fOutContentType, fOutCustomHeaders: SockString;
+
+    fInFileUpload: Boolean;
+    fCtxInfo: PPnContextInfo;
+
     fOutStatusCode: Cardinal;
     fConnectionID: Int64;
     fUseSSL: Boolean;
-    fAuthenticationStatus: THttpServerRequestAuthentication;
-    fAuthenticatedUser: SockString;
+
     fInCompressAccept: THttpSocketCompressSet;
     fRespSent: Boolean;
 
     function _NewIoData: PPerHttpIoData; inline;
     procedure _FreeIoData(P: PPerHttpIoData); inline;
+    function GetInFileUpload: Boolean;
+    function GetURL: SockString;
+    function GetMethod: SockString;
+    function GetInHeaders: SockString;
+    function GetInContent: SockString;
+    function GetInContentType: SockString;
+    function GetRemoteIP: SockString;
+
+    function GetInContentLength: UInt64;
+    function GetInContentLengthRead: UInt64;
+    function GetInContentEncoding: SockString;
+
+    function GetOutContent: SockString;
+    procedure SetOutContent(AValue: SockString);
+    function GetOutContentType: SockString;
+    procedure SetOutContentType(AValue: SockString);
+    function GetOutCustomHeaders: SockString;
+    procedure SetOutCustomHeaders(AValue: SockString);
+
     procedure SetHeaders(Resp: PHTTP_RESPONSE; P: PAnsiChar; var UnknownHeaders: HTTP_UNKNOWN_HEADERs);
     function AddCustomHeader(Resp: PHTTP_RESPONSE; P: PAnsiChar; var UnknownHeaders: HTTP_UNKNOWN_HEADERs;
       ForceCustomHeader: boolean): PAnsiChar;
@@ -106,34 +135,41 @@ type
     constructor Create(AServer: TPnHttpSysServer);
     destructor Destroy; override;
     procedure InitObject; override;
-    procedure SendStream(const AStream: TStream; const AContentType: SockString = ''); inline;
+    procedure SendStream(const AStream: TStream; const AContentType: SockString = ''); //inline;
     procedure SendError(StatusCode: Cardinal; const ErrorMsg: string; E: Exception = nil);
-    function SendResponse: Boolean; inline;
+    function SendResponse: Boolean; //inline;
 
     /// PnHttpSysServer
     property Server: TPnHttpSysServer read fServer;
+    property InFileUpload: Boolean read GetInFileUpload;
     /// URI与请求参数
-    property URL: SockString read fURL;
+    property URL: SockString read GetURL;
     /// 请求方法(GET/POST...)
-    property Method: SockString read fMethod;
+    property Method: SockString read GetMethod;
     /// 请求头
-    property InHeaders: SockString read fInHeaders;
+    property InHeaders: SockString read GetInHeaders;
     /// 请求body,多为post或上传文件
-    property InContent: SockString read fInContent;
-    /// post长度
-    property InContentLength: UInt64 read fInContentLength;
-    /// post已接收长度
-    property InContentLengthRead: UInt64 read fInContentLengthRead;
+    property InContent: SockString read GetInContent;
     /// 请求body的内容类型,指定HTTP_RESP_STATICFILE交给SendResponse处理静态文件
-    property InContentType: SockString read fInContentType;
+    property InContentType: SockString read GetInContentType;
+    ///
+    property RemoteIP: SockString read GetRemoteIP;
+
+    /// post长度
+    property InContentLength: UInt64 read GetInContentLength;
+    /// post已接收长度
+    property InContentLengthRead: UInt64 read GetInContentLengthRead;
+    ///
+    property InContentEncoding: SockString read GetInContentEncoding;
+
     //Response
     /// 输出body文本,发送内存流时用到，大小受string限制为2G,为静态文件时此处为文件路径
-    property OutContent: SockString read fOutContent write fOutContent;
+    property OutContent: SockString read GetOutContent write SetOutContent;
     /// 响应body的内容类型,指定HTTP_RESP_STATICFILE交给SendResponse处理静态文件
     // - 为!NORESPONSE时可自定义类型,如处理websockets消息等等
-    property OutContentType: SockString read fOutContentType write fOutContentType;
+    property OutContentType: SockString read GetOutContentType write SetOutContentType;
     /// 响应头信息
-    property OutCustomHeaders: SockString read fOutCustomHeaders write fOutCustomHeaders;
+    property OutCustomHeaders: SockString read GetOutCustomHeaders write SetOutCustomHeaders;
     /// http statuscode
     property OutStatusCode: Cardinal read fOutStatusCode write fOutStatusCode;
   end;
@@ -191,6 +227,8 @@ type
     fReqCount: Int64;
     fRespCount: Int64;
     fMaximumAllowedContentLength: Cardinal;
+    fRemoteIPHeader,
+    fRemoteIPHeaderUpper: SockString;
     //服务名称
     fServerName: SockString;
     fLoggined: Boolean;
@@ -274,6 +312,7 @@ type
     procedure SetOnBeforeRequest(AEvent: TOnHttpServerRequestBase);
     procedure SetOnAfterRequest(AEvent: TOnHttpServerRequestBase);
     procedure SetOnAfterResponse(AEvent: TOnHttpServerRequestBase);
+    procedure SetRemoteIPHeader(const aHeader: SockString);
     function DoRequest(Ctxt: TPnHttpServerContext; AFileUpload: Boolean;
       AReadBuf: PAnsiChar; AReadBufLen: Cardinal): Cardinal;
     function DoBeforeRequest(Ctxt: TPnHttpServerContext): Cardinal;
@@ -353,6 +392,7 @@ type
     property RespCount: Int64 read fRespCount;
     property MaximumAllowedContentLength: Cardinal read fMaximumAllowedContentLength
       write fMaximumAllowedContentLength;
+    property RemoteIPHeader: SockString read fRemoteIPHeader write SetRemoteIPHeader;
     property ServerName: SockString read fServerName write fServerName;
     property Loggined: Boolean read fLoggined;
     /// 定义ReceiveRequestEntityBody一次接收多少字节
@@ -387,6 +427,9 @@ uses
   SynWinSock,
   uPNDebug;
 
+
+
+
 var
   ServerContextNewCount: Integer = 0;
   ServerContextFreeCount: Integer = 0;
@@ -398,8 +441,23 @@ begin
   fServer := AServer;
   fReqPerHttpIoData := _NewIoData;
   fReqPerHttpIoData^.IoData := Self;
-  SetLength(fReqBuf,RequestBufferLen);
+  SetLength(fReqBuf, RequestBufferLen);
   fReq := Pointer(fReqBuf);
+
+  fInFileUpload := False;
+  fCtxInfo := nil;
+
+//  fURL := '';
+//  fMethod := '';
+//  fInHeaders := '';
+//  fInContent := '';
+//  fInContentType := '';
+//
+//  fRemoteIP := '';
+//  fInContentEncoding := '';
+//  fOutCustomHeaders := '';
+//  fAuthenticatedUser := '';
+
   inherited Create;
 end;
 
@@ -407,6 +465,8 @@ destructor TPnHttpServerContext.Destroy;
 begin
   AtomicIncrement(ServerContextFreeCount);
   _FreeIoData(fReqPerHttpIoData);
+  if fCtxInfo<>nil then
+    Dispose(fCtxInfo);
   inherited;
 end;
 
@@ -416,23 +476,54 @@ begin
   fReqPerHttpIoData^.Action := IoNone;
   fReqPerHttpIoData^.hFile := INVALID_HANDLE_VALUE;
 
-  FillChar(Pointer(@fReqBuf[1])^, SizeOf(fReqBuf), 0);
+  FillChar(Pointer(fReqBuf)^, SizeOf(fReqBuf), 0);
   fReq := Pointer(fReqBuf);
-  fInContentLength := 0;
+  FillChar(fResp, sizeof(fResp), 0);
 
   fInFileUpload := False;
+  if fCtxInfo=nil then
+    New(fCtxInfo);
+  FillChar(fCtxInfo^, SizeOf(TPnContextInfo), 0);
+//  with fCtxInfo^ do
+//  begin
+//    fURL := '';
+//    fMethod := '';
+//    fInHeaders := '';
+//    fInContent := '';
+//    fInContentType := '';
+//    fRemoteIP := '';
+//
+//    fInContentLength := 0;
+//    fInContentLengthRead := 0;
+//
+//    fInContentEncoding := '';
+//    //fInAcceptEncoding := '';
+//    //fInRange := '';
+//
+//    fOutContent := '';
+//    fOutContentType := '';
+//    fOutCustomHeaders := '';
+//    fAuthenticatedUser := '';
+//    fAuthenticationStatus := hraNone;
+//  end;
 
-  FillChar(fResp,sizeof(fResp),0);
-  fRespSent := False;
   fOutStatusCode := 200;
+  fConnectionID := 0;
+  fUseSSL := False;
+
+  Integer(fInCompressAccept) := 0;
+  fRespSent := False;
 end;
 
 procedure TPnHttpServerContext.SendStream(const AStream: TStream; const AContentType: SockString);
 begin
-  SetLength(fOutContent, AStream.Size);
-  AStream.Read(PAnsiChar(fOutContent)^, AStream.Size);
-  if Length(AContentType)>0 then
-    fOutContentType := AContentType;
+  with fCtxInfo^ do
+  begin
+    SetLength(fOutContent, AStream.Size);
+    AStream.Read(PAnsiChar(fOutContent)^, AStream.Size);
+    if Length(AContentType)>0 then
+      fOutContentType := AContentType;
+  end;
 end;
 
 procedure TPnHttpServerContext.SendError(StatusCode: Cardinal; const ErrorMsg: string; E: Exception);
@@ -463,7 +554,7 @@ begin
     if (fServer.Loggined) and (fServer.FHttpApiVersion.HttpApiMajorVersion>=2) then
     begin
       FillChar(fLogFieldsData, SizeOf(fLogFieldsData), 0);
-      with fReq^,fLogFieldsData do
+      with fCtxInfo^,fReq^,fLogFieldsData do
       begin
         MethodNum := Verb;
         UriStemLength := CookedUrl.AbsPathLength;
@@ -484,12 +575,12 @@ begin
           Referrer := pRawValue;
         end;
         ProtocolStatus := fResp.StatusCode;
-        ClientIp := pointer(Self.fRemoteIP);
-        ClientIpLength := length(Self.fRemoteIP);
-        Method := pointer(Self.fMethod);
-        MethodLength := length(Self.fMethod);
-        UserName := pointer(Self.fAuthenticatedUser);
-        UserNameLength := Length(Self.fAuthenticatedUser);
+        ClientIp := PAnsiChar(fRemoteIP);
+        ClientIpLength := Length(fRemoteIP);
+        Method := pointer(fMethod);
+        MethodLength := Length(fMethod);
+        UserName := pointer(fAuthenticatedUser);
+        UserNameLength := Length(fAuthenticatedUser);
       end;
       pLogFieldsData := @fLogFieldsData;
     end
@@ -501,13 +592,13 @@ begin
       [StatusCode,OutStatus]);
     if E<>nil then
       Msg := Msg+string(E.ClassName)+' Exception raised:<br>';
-    OutContent := UTF8String(Msg)+HtmlEncode(
+    fCtxInfo^.fOutContent := UTF8String(Msg)+HtmlEncode(
       {$ifdef UNICODE}UTF8String{$else}UTF8Encode{$endif}(ErrorMsg))
       {$ifndef NOXPOWEREDNAME}+'</p><p><small>'+XPOWEREDVALUE{$endif};
 
     dataChunk.DataChunkType := HttpDataChunkFromMemory;
-    dataChunk.pBuffer := PAnsiChar(OutContent);
-    dataChunk.BufferLength := Length(OutContent);
+    dataChunk.pBuffer := PAnsiChar(fCtxInfo^.fOutContent);
+    dataChunk.BufferLength := Length(fCtxInfo^.fOutContent);
 
     with fResp do
     begin
@@ -576,7 +667,7 @@ begin
   if (fServer.Loggined) and (fServer.FHttpApiVersion.HttpApiMajorVersion>=2) then
   begin
     FillChar(fLogFieldsData, SizeOf(fLogFieldsData), 0);
-    with fReq^,fLogFieldsData do
+    with fCtxInfo^,fReq^,fLogFieldsData do
     begin
       MethodNum := Verb;
       UriStemLength := CookedUrl.AbsPathLength;
@@ -597,12 +688,12 @@ begin
         Referrer := pRawValue;
       end;
       ProtocolStatus := fResp.StatusCode;
-      ClientIp := pointer(Self.fRemoteIP);
-      ClientIpLength := length(Self.fRemoteIP);
-      Method := pointer(Self.fMethod);
-      MethodLength := length(Self.fMethod);
-      UserName := pointer(Self.fAuthenticatedUser);
-      UserNameLength := Length(Self.fAuthenticatedUser);
+      ClientIp := PAnsiChar(fRemoteIP);
+      ClientIpLength := Length(fRemoteIP);
+      Method := pointer(fMethod);
+      MethodLength := Length(fMethod);
+      UserName := pointer(fAuthenticatedUser);
+      UserNameLength := Length(fAuthenticatedUser);
     end;
     pLogFieldsData := @fLogFieldsData;
   end
@@ -611,7 +702,7 @@ begin
 
   // send response
   fResp.Version := fReq^.Version;
-  SetHeaders(@fResp,pointer(fOutCustomHeaders),Heads);
+  SetHeaders(@fResp,pointer(fCtxInfo^.fOutCustomHeaders),Heads);
 
   if fServer.fCompressAcceptEncoding<>'' then
     AddCustomHeader(@fResp, PAnsiChar(fServer.fCompressAcceptEncoding), Heads, false);
@@ -622,14 +713,14 @@ begin
     RawValueLength := length(fServer.fServerName);
   end;
 
-  if fOutContentType=HTTP_RESP_STATICFILE then
+  if fCtxInfo^.fOutContentType=HTTP_RESP_STATICFILE then
   begin
-    SendFile(fOutContent, '', Heads, pLogFieldsData);
+    SendFile(fCtxInfo^.fOutContent, '', Heads, pLogFieldsData);
   end
   else begin
     // response is in OutContent -> send it from memory
-    if fOutContentType=HTTP_RESP_NORESPONSE then
-      fOutContentType := ''; // true HTTP always expects a response
+    if fCtxInfo^.fOutContentType=HTTP_RESP_NORESPONSE then
+      fCtxInfo^.fOutContentType := ''; // true HTTP always expects a response
     //gzip压缩
     if fServer.fCompress<>nil then
     begin
@@ -638,17 +729,17 @@ begin
         begin
           // no previous encoding -> try if any compression
           OutContentEncoding := CompressDataAndGetHeaders(fInCompressAccept,
-            fServer.fCompress,fOutContentType,fOutContent);
+            fServer.fCompress,fCtxInfo^.fOutContentType,fCtxInfo^.fOutContent);
           pRawValue := pointer(OutContentEncoding);
           RawValueLength := Length(OutContentEncoding);
         end;
     end;
 
-    if fOutContent<>'' then
+    if fCtxInfo^.fOutContent<>'' then
     begin
       dataChunk.DataChunkType := HttpDataChunkFromMemory;
-      dataChunk.pBuffer := PAnsiChar(fOutContent);
-      dataChunk.BufferLength := Length(fOutContent);
+      dataChunk.pBuffer := PAnsiChar(fCtxInfo^.fOutContent);
+      dataChunk.BufferLength := Length(fCtxInfo^.fOutContent);
 
       with fResp do
       begin
@@ -656,8 +747,8 @@ begin
         EntityChunkCount := 1;
         pEntityChunks := @dataChunk;
         //ContentType
-        Headers.KnownHeaders[HttpHeaderContentType].RawValueLength := Length(fOutContentType);
-        Headers.KnownHeaders[HttpHeaderContentType].pRawValue := PAnsiChar(fOutContentType);
+        Headers.KnownHeaders[HttpHeaderContentType].RawValueLength := Length(fCtxInfo^.fOutContentType);
+        Headers.KnownHeaders[HttpHeaderContentType].pRawValue := PAnsiChar(fCtxInfo^.fOutContentType);
       end;
 
 
@@ -701,6 +792,87 @@ procedure TPnHttpServerContext._FreeIoData(P: PPerHttpIoData);
 begin
   P.IoData := nil;
   System.Dispose(P);
+end;
+
+function TPnHttpServerContext.GetInFileUpload: Boolean;
+begin
+  Result := fInFileUpload;
+end;
+
+function TPnHttpServerContext.GetURL: SockString;
+begin
+  Result := fCtxInfo^.fURL;
+end;
+
+function TPnHttpServerContext.GetMethod: SockString;
+begin
+  Result := fCtxInfo^.fMethod;
+end;
+
+function TPnHttpServerContext.GetInHeaders: SockString;
+begin
+  Result := fCtxInfo^.fInHeaders;
+end;
+
+function TPnHttpServerContext.GetInContent: SockString;
+begin
+  Result := fCtxInfo^.fInContent;
+end;
+
+function TPnHttpServerContext.GetInContentType: SockString;
+begin
+  Result := fCtxInfo^.fInContentType;
+end;
+
+function TPnHttpServerContext.GetRemoteIP: SockString;
+begin
+  Result := fCtxInfo^.fRemoteIP;
+end;
+
+
+function TPnHttpServerContext.GetInContentLength: UInt64;
+begin
+  Result := fCtxInfo^.fInContentLength;
+end;
+
+function TPnHttpServerContext.GetInContentLengthRead: UInt64;
+begin
+  Result := fCtxInfo^.fInContentLengthRead;
+end;
+
+function TPnHttpServerContext.GetInContentEncoding: SockString;
+begin
+  Result := fCtxInfo^.fInContentEncoding;
+end;
+
+function TPnHttpServerContext.GetOutContent: SockString;
+begin
+  Result := fCtxInfo^.fOutContent;
+end;
+
+procedure TPnHttpServerContext.SetOutContent(AValue: SockString);
+begin
+  fCtxInfo^.fOutContent := AValue;
+end;
+
+function TPnHttpServerContext.GetOutContentType: SockString;
+begin
+  Result := fCtxInfo^.fOutContentType;
+end;
+
+procedure TPnHttpServerContext.SetOutContentType(AValue: SockString);
+begin
+  fCtxInfo^.fOutContentType := AValue;
+end;
+
+function TPnHttpServerContext.GetOutCustomHeaders: SockString;
+begin
+  Result := fCtxInfo^.fOutCustomHeaders;
+end;
+
+procedure TPnHttpServerContext.SetOutCustomHeaders(AValue: SockString);
+begin
+  fCtxInfo^.fOutCustomHeaders := AValue;
 end;
 
 procedure TPnHttpServerContext.SetHeaders(Resp: PHTTP_RESPONSE; P: PAnsiChar; var UnknownHeaders: HTTP_UNKNOWN_HEADERs);
@@ -798,6 +970,7 @@ var
   LReqDate: TDateTime;
   OutStatus: SockString;
   dataChunk: HTTP_DATA_CHUNK;
+  fInRange: SockString;
   R: PAnsiChar;
   RangeStart, RangeLength: ULONGLONG;
   OutContentLength: ULARGE_INTEGER;
@@ -853,14 +1026,14 @@ begin
   LFileDate := FileAgeToDateTime(AFileName);
   //MimeType
   if AMimeType<>'' then
-    fOutContentType := AMimeType
+    fCtxInfo^.fOutContentType := AMimeType
   else
-    fOutContentType := GetMimeContentType(nil,0,fOutContent);
+    fCtxInfo^.fOutContentType := GetMimeContentType(nil,0,fCtxInfo^.fOutContent);
   with fResp do
   begin
     //ContentType
-    Headers.KnownHeaders[HttpHeaderContentType].RawValueLength := Length(fOutContentType);
-    Headers.KnownHeaders[HttpHeaderContentType].pRawValue := PAnsiChar(fOutContentType);
+    Headers.KnownHeaders[HttpHeaderContentType].RawValueLength := Length(fCtxInfo^.fOutContentType);
+    Headers.KnownHeaders[HttpHeaderContentType].pRawValue := PAnsiChar(fCtxInfo^.fOutContentType);
     //HttpHeaderExpires
     sExpires := DateTimeToGMTRFC822(-1);
     Headers.KnownHeaders[HttpHeaderExpires].RawValueLength := Length(sExpires);
@@ -1007,6 +1180,8 @@ var
   Binding: HTTP_BINDING_INFO;
 begin
   inherited Create;
+  fRemoteIPHeader := '';
+  fRemoteIPHeaderUpper := '';
   fServerName := XSERVERNAME+' ('+XPOWEREDOS+')';
   fLoggined := False;
   fReqCount := 0;
@@ -1401,6 +1576,12 @@ begin
   fOnAfterResponse := AEvent;
 end;
 
+procedure TPnHttpSysServer.SetRemoteIPHeader(const aHeader: SockString);
+begin
+  fRemoteIPHeader := aHeader;
+  fRemoteIPHeaderUpper := UpperCase(aHeader);
+end;
+
 function TPnHttpSysServer.DoRequest(Ctxt: TPnHttpServerContext; AFileUpload: Boolean;
       AReadBuf: PAnsiChar; AReadBufLen: Cardinal): Cardinal;
 begin
@@ -1441,7 +1622,6 @@ const
     'OPTIONS','GET','HEAD','POST','PUT','DELETE','TRACE','CONNECT','TRACK',
     'MOVE','COPY','PROPFIND','PROPPATCH','MKCOL','LOCK','UNLOCK','SEARCH');
 var
-  //InAcceptEncoding: SockString;
   BytesRead: Cardinal;
   hr: HRESULT;
   Verbs: TVerbText;
@@ -1449,13 +1629,14 @@ var
   I: Integer;
   //pReqInfo: PHTTP_REQUEST_INFO;
   flags: Cardinal;
+  fInAcceptEncoding: SockString;
 begin
   if (AContext<>nil) then
   begin
     AtomicIncrement(fReqCount);
     Verbs := VERB_TEXT;
     // parse method and headers
-    with AContext do
+    with AContext,AContext.fCtxInfo^ do
     begin
       fReqBufLen := fReqPerHttpIoData^.BytesRead;
       fConnectionID := fReq^.ConnectionId;
@@ -1463,10 +1644,13 @@ begin
       fURL := fReq^.pRawUrl;
       if fReq^.Verb in [low(Verbs)..high(Verbs)] then
         fMethod := Verbs[fReq^.Verb]
-      else
+      else begin
         SetString(fMethod,fReq^.pUnknownVerb,fReq^.UnknownVerbLength);
+      end;
       with fReq^.Headers.KnownHeaders[HttpHeaderContentType] do
+      begin
         SetString(fInContentType,pRawValue,RawValueLength);
+      end;
       with fReq^.Headers.KnownHeaders[HttpHeaderAcceptEncoding] do
         SetString(fInAcceptEncoding,pRawValue,RawValueLength);
       fInCompressAccept := ComputeContentEncoding(fCompress,Pointer(fInAcceptEncoding));
@@ -1484,35 +1668,14 @@ begin
                 HttpAuthStatusSuccess:
                 if AuthType>HttpRequestAuthTypeNone then
                 begin
-                  byte(AContext.fAuthenticationStatus) := ord(AuthType)+1;
+                  byte(AContext.fCtxInfo^.fAuthenticationStatus) := ord(AuthType)+1;
                   if AccessToken<>0 then
-                    GetDomainUserNameFromToken(AccessToken,AContext.fAuthenticatedUser);
+                    GetDomainUserNameFromToken(AccessToken,AContext.fCtxInfo^.fAuthenticatedUser);
                 end;
                 HttpAuthStatusFailure:
-                  AContext.fAuthenticationStatus := hraFailed;
+                  AContext.fCtxInfo^.fAuthenticationStatus := hraFailed;
               end;
             end;
-
-//        pReqInfo := fReq^.pRequestInfo;
-//        while pReqInfo<>nil do
-//        begin
-//          if pReqInfo^.InfoType=HttpRequestInfoTypeAuth then
-//            with PHTTP_REQUEST_AUTH_INFO(pReqInfo.pInfo)^ do begin
-//              case AuthStatus of
-//                HttpAuthStatusSuccess:
-//                  if AuthType>HttpRequestAuthTypeNone then begin
-//                    Byte(fAuthenticationStatus) := ord(AuthType)+1;
-//                    if AccessToken<>0 then
-//                      GetDomainUserNameFromToken(AccessToken,fAuthenticatedUser);
-//                  end;
-//                HttpAuthStatusFailure:
-//                  fAuthenticationStatus := hraFailed;
-//              end;
-//            end;
-//
-//          //next ReqInfo
-//          Inc(pReqInfo);
-//        end;
 
       end;
 
@@ -1523,7 +1686,9 @@ begin
         with fReq^.Headers.KnownHeaders[HttpHeaderContentLength] do
           fInContentLength := GetCardinal(pRawValue,pRawValue+RawValueLength);
         with fReq^.Headers.KnownHeaders[HttpHeaderContentEncoding] do
+        begin
           SetString(fInContentEncoding,pRawValue,RawValueLength);
+        end;
         //fInContentLength长度限制
         if (fInContentLength>0) and (MaximumAllowedContentLength>0) and
            (fInContentLength>MaximumAllowedContentLength) then
@@ -1629,7 +1794,7 @@ var
   I: Integer;
 begin
   try
-    with AContext do
+    with AContext,AContext.fCtxInfo^ do
     begin
       if fReqPerHttpIoData^.BytesRead>0 then
       begin
@@ -1732,7 +1897,7 @@ var
 begin
   //compute response
   try
-    with AContext do
+    with AContext,AContext.fCtxInfo^ do
     begin
       fOutContent := '';
       fOutContentType := '';
@@ -1779,12 +1944,14 @@ begin
         CloseHandle(fReqPerHttpIoData.hFile);
         fReqPerHttpIoData.hFile := INVALID_HANDLE_VALUE;
       end;
-      if Length(fReqBodyBuf)>1 then
-        SetLength(fReqBodyBuf, 0);
-      if Length(fInContent)>0 then
-        SetLength(fInContent, 0);
-      if Length(fOutContent)>0 then
-        SetLength(fOutContent, 0);
+//      if Length(fReqBodyBuf)>0 then
+//        SetLength(fReqBodyBuf, 0);
+//      if Length(fInContent)>0 then
+//        SetLength(fInContent, 0);
+//      if Length(fOutContent)>0 then
+//        SetLength(fOutContent, 0);
+      Dispose(fCtxInfo);
+      fCtxInfo := nil;
     end;
   except
     On E: Exception do

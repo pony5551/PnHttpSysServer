@@ -192,7 +192,7 @@ begin
     FreeAndNil(FServer);
   m_StartRun := GetTickCount64;
   m_LastRun := GetTickCount64;
-  fServer := TPnHttpSysServer.Create(0, 1000);
+  fServer := TPnHttpSysServer.Create(0, 100);
   sPorts := ServerPorts;
   sPortArr := sPorts.Split([',']);
   for I := 0 to Length(sPortArr)-1 do
@@ -200,7 +200,7 @@ begin
     if sPortArr[I]<>'' then
       fServer.AddUrl('/',sPortArr[I].Trim,false,'+',true);
   end;
-  fServer.RegisterCompress(CompressDeflate);
+  fServer.RegisterCompress(CompressDeflateEx);
   fServer.OnRequest := Process;
   fServer.HTTPQueueLength := 100000;
   if chkLog.Checked then
@@ -249,9 +249,14 @@ end;
 
 function TfrmMainEx.Process(Ctxt: TPnHttpServerContext; AFileUpload: Boolean;
       AReadBuf: PAnsiChar; AReadBufLen: Cardinal): Cardinal;
+var
+  s: AnsiString;
 begin
+//  SetLength(s, 2048);
+//  FillChar(PAnsiChar(s)^, 2048, 51);
+//  Ctxt.OutContent := s;
   Ctxt.OutContent := 'PnHttpSysServerMain';
-  Ctxt.OutContentType := HTML_CONTENT_TYPE;
+  Ctxt.OutContentType := AnsiString(HTML_CONTENT_TYPE);
   result := 200;
 end;
 

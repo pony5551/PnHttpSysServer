@@ -5,7 +5,8 @@ interface
 uses
   System.SysUtils,
   Winapi.Windows,
-  uPnHttpSys.Api;
+  uPnHttpSys.Api,
+  SynZip;
 
 type
 {$ifdef UNICODE}
@@ -146,14 +147,9 @@ type
 
 
 { functions }
+function CompressDeflateEx(var DataRawByteString; Compress: boolean): AnsiString;
 function RetrieveHeaders(const Request: HTTP_REQUEST;
   const RemoteIPHeadUp: SockString; out RemoteIP: SockString): SockString;
-procedure GetDomainUserNameFromToken(UserToken: THandle; var result: SockString);
-function GetCardinal(P: PAnsiChar): cardinal; overload;
-function GetCardinal(P,PEnd: PAnsiChar): cardinal; overload;
-function StatusCodeToReason(Code: Cardinal): SockString;
-function IdemPChar(p, up: pAnsiChar): Boolean;
-function IdemPCharArray(p: PAnsiChar; const upArray: array of PAnsiChar): integer;
 function ComputeContentEncoding(const Compress: THttpSocketCompressRecDynArray;
   P: PAnsiChar): THttpSocketCompressSet;
 function RegisterCompressFunc(var Compress: THttpSocketCompressRecDynArray;
@@ -162,6 +158,12 @@ function RegisterCompressFunc(var Compress: THttpSocketCompressRecDynArray;
 function CompressDataAndGetHeaders(Accepted: THttpSocketCompressSet;
   const Handled: THttpSocketCompressRecDynArray; const OutContentType: SockString;
   var OutContent: SockString): SockString;
+procedure GetDomainUserNameFromToken(UserToken: THandle; var result: SockString);
+function GetCardinal(P: PAnsiChar): cardinal; overload;
+function GetCardinal(P,PEnd: PAnsiChar): cardinal; overload;
+function StatusCodeToReason(Code: Cardinal): SockString;
+function IdemPChar(p, up: pAnsiChar): Boolean;
+function IdemPCharArray(p: PAnsiChar; const upArray: array of PAnsiChar): integer;
 function HtmlEncode(const s: SockString): SockString;
 function GetNextItemUInt64(var P: PAnsiChar): ULONGLONG;
 procedure AppendI64(value: Int64; var dest: shortstring);
@@ -174,8 +176,52 @@ function GMTRFC822ToDateTime(const pSour: AnsiString): TDateTime;
 implementation
 
 uses
+  System.Classes,
   SynWinSock,
   System.DateUtils;
+
+
+const
+  HTTP_LEVEL = 1; // 6 is standard, but 1 is enough and faster
+
+procedure CompressInternal(var Data: SockString; Compress, ZLib: boolean);
+var tmp: ZipString;
+    DataLen: integer;
+    LStream: TMemoryStream;
+begin
+  tmp := Data;
+  DataLen := Length(Data);
+  if Compress then
+  begin
+    LStream := TMemoryStream.Create;
+    try
+      CompressStream(pointer(tmp),DataLen,LStream,HTTP_LEVEL,ZLib,0);
+      LStream.Position := 0;
+      SetLength(Data, LStream.Size);
+      LStream.Read(PAnsiChar(Data)^, LStream.Size);
+    finally
+      LStream.Free;
+    end;
+  end
+  else begin
+    LStream := TMemoryStream.Create;
+    try
+      UnCompressStream(pointer(tmp),DataLen,LStream,nil,ZLib,0);
+      LStream.Position := 0;
+      SetLength(Data, LStream.Size);
+      LStream.Read(PAnsiChar(Data)^, LStream.Size);
+    finally
+      LStream.Free;
+    end;
+  end;
+end;
+
+function CompressDeflateEx(var DataRawByteString; Compress: boolean): AnsiString;
+var Data: SockString absolute DataRawByteString;
+begin
+  CompressInternal(Data,Compress,false);
+  result := 'deflate';
+end;
 
 
 { functions }
@@ -208,11 +254,12 @@ procedure IP4Text(const ip4addr; var result: SockString);
 var b: array[0..3] of byte absolute ip4addr;
 begin
   if cardinal(ip4addr)=0 then
-    result := '' else
-  if cardinal(ip4addr)=$0100007f then
-    result := '127.0.0.1'
+    result := ''
   else
-    result := SockString(Format('%d.%d.%d.%d',[b[0],b[1],b[2],b[3]]))
+    if cardinal(ip4addr)=$0100007f then
+      result := '127.0.0.1'
+    else
+      result := SockString(Format('%d.%d.%d.%d',[b[0],b[1],b[2],b[3]]))
 end;
 
 procedure GetSinIPFromCache(const sin: TVarSin; var result: SockString);
@@ -259,13 +306,14 @@ begin
       begin
         SetString(RemoteIP,p^.pRawValue,p^.RawValueLength);
         break;
-      end else
-      inc(P);
+      end
+      else
+        inc(P);
   end;
   if (RemoteIP='') and (Request.Address.pRemoteAddress<>nil) then
     GetSinIPFromCache(PVarSin(Request.Address.pRemoteAddress)^,RemoteIP);
   // compute headers length
-  Lip := length(RemoteIP);
+  Lip := Length(RemoteIP);
   if Lip<>0 then
     L := (REMOTEIP_HEADERLEN+2)+Lip
   else
@@ -548,7 +596,8 @@ function RegisterCompressFunc(var Compress: THttpSocketCompressRecDynArray;
   aFunction: THttpSocketCompress; var aAcceptEncoding: SockString;
   aCompressMinSize: integer): SockString;
 var i, n: integer;
-    dummy, aName: SockString;
+    dummy: SockString;
+    aName: SockString;
 begin
   result := '';
   if @aFunction=nil then
@@ -588,23 +637,24 @@ var i, OutContentLen: integer;
 begin
   if (integer(Accepted)<>0) and (OutContentType<>'') and (Handled<>nil) then
   begin
-    OutContentLen := length(OutContent);
+    OutContentLen := Length(OutContent);
     case IdemPCharArray(OutContentTypeP,['TEXT/','IMAGE/','APPLICATION/']) of
-    0: compressible := true;
-    1: compressible := IdemPCharArray(OutContentTypeP+6,['SVG','X-ICO'])>=0;
-    2: compressible := IdemPCharArray(OutContentTypeP+12,['JSON','XML','JAVASCRIPT'])>=0;
-    else compressible := false;
+      0: compressible := true;
+      1: compressible := IdemPCharArray(OutContentTypeP+6,['SVG','X-ICO'])>=0;
+      2: compressible := IdemPCharArray(OutContentTypeP+12,['JSON','XML','JAVASCRIPT'])>=0;
+    else
+      compressible := false;
     end;
     for i := 0 to high(Handled) do
-    if i in Accepted then
-    with Handled[i] do
-    if (CompressMinSize=0) or // 0 here means "always" (e.g. for encryption)
-       (compressible and (OutContentLen>=CompressMinSize)) then
-    begin
-      // compression of the OutContent + update header
-      result := Func(OutContent,true);
-      exit; // first in fCompress[] is prefered
-    end;
+      if i in Accepted then
+        with Handled[i] do
+          if (CompressMinSize=0) or // 0 here means "always" (e.g. for encryption)
+             (compressible and (OutContentLen>=CompressMinSize)) then
+          begin
+            // compression of the OutContent + update header
+            result := Func(OutContent,true);
+            exit; // first in fCompress[] is prefered
+          end;
   end;
   result := '';
 end;
