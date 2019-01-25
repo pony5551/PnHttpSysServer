@@ -1,3 +1,12 @@
+{******************************************************************************}
+{                                                                              }
+{       Delphi PnHttpSysServer                                                 }
+{                                                                              }
+{       Copyright (c) 2018 pony,光明(7180001@qq.com)                           }
+{                                                                              }
+{       Homepage: https://github.com/pony5551/PnHttpSysServer                  }
+{                                                                              }
+{******************************************************************************}
 unit uPnHttpSysServer;
 
 interface
@@ -12,23 +21,15 @@ uses
   uPNObject,
   uPNObjectPool;
 
+
+
+type
+  TVerbText = array[HttpVerbOPTIONS..pred(HttpVerbMaximum)] of SockString;
+
 const
-  //http头要求16kb大小
-  RequestBufferLen = 16*1024 + SizeOf(HTTP_REQUEST);
-
-  /// the running Operating System
-  XPOWEREDOS =
-    {$ifdef MSWINDOWS}
-      'Windows'
-    {$else}
-      {$ifdef LINUXNOTBSD} 'Linux' {$else} 'Posix' {$endif LINUXNOTBSD}
-    {$endif MSWINDOWS};
-
-  XSERVERNAME = 'PnHttpSysServer';
-  XPOWEREDPROGRAM = XSERVERNAME + ' 0.9.9';
-  XPOWEREDNAME = 'X-Powered-By';
-  XPOWEREDVALUE = XPOWEREDPROGRAM + ' ';
-
+  VERB_TEXT: TVerbText = (
+    'OPTIONS','GET','HEAD','POST','PUT','DELETE','TRACE','CONNECT','TRACK',
+    'MOVE','COPY','PROPFIND','PROPPATCH','MKCOL','LOCK','UNLOCK','SEARCH');
 
 type
   TPnHttpServerContext = class;
@@ -64,13 +65,13 @@ type
   TPnContextInfo = record
     fReqBodyBuf: array of Byte;
 
-    fURL,
+    //fURL,
     fMethod,
-    fInHeaders,
-    fInContent,
     fInContentType,
+    fInHeaders,
     fRemoteIP: SockString;
 
+    fInContent: SockString;
     fInContentBufRead: PAnsiChar;
 
     fInContentLength,
@@ -227,6 +228,7 @@ type
     fReqCount: Int64;
     fRespCount: Int64;
     fMaximumAllowedContentLength: Cardinal;
+    fVerbs: TVerbText;
     fRemoteIPHeader,
     fRemoteIPHeaderUpper: SockString;
     //服务名称
@@ -347,6 +349,8 @@ type
     function AddUrl(const ARoot, APort: SockString; Https: Boolean = False;
       const ADomainName: SockString='*'; ARegisterURI: Boolean = False;
       AUrlContext: HTTP_URL_CONTEXT = 0): Integer;
+    procedure HttpApiInit;
+    procedure HttpApiFinal;
     procedure Start;
     procedure Stop;
     procedure RegisterCompress(aFunction: THttpSocketCompress;
@@ -447,17 +451,6 @@ begin
   fInFileUpload := False;
   fCtxInfo := nil;
 
-//  fURL := '';
-//  fMethod := '';
-//  fInHeaders := '';
-//  fInContent := '';
-//  fInContentType := '';
-//
-//  fRemoteIP := '';
-//  fInContentEncoding := '';
-//  fOutCustomHeaders := '';
-//  fAuthenticatedUser := '';
-
   inherited Create;
 end;
 
@@ -484,28 +477,7 @@ begin
   if fCtxInfo=nil then
     New(fCtxInfo);
   FillChar(fCtxInfo^, SizeOf(TPnContextInfo), 0);
-//  with fCtxInfo^ do
-//  begin
-//    fURL := '';
-//    fMethod := '';
-//    fInHeaders := '';
-//    fInContent := '';
-//    fInContentType := '';
-//    fRemoteIP := '';
-//
-//    fInContentLength := 0;
-//    fInContentLengthRead := 0;
-//
-//    fInContentEncoding := '';
-//    //fInAcceptEncoding := '';
-//    //fInRange := '';
-//
-//    fOutContent := '';
-//    fOutContentType := '';
-//    fOutCustomHeaders := '';
-//    fAuthenticatedUser := '';
-//    fAuthenticationStatus := hraNone;
-//  end;
+
 
   fOutStatusCode := 200;
   fConnectionID := 0;
@@ -577,8 +549,8 @@ begin
         ProtocolStatus := fResp.StatusCode;
         ClientIp := PAnsiChar(fRemoteIP);
         ClientIpLength := Length(fRemoteIP);
-        Method := pointer(fMethod);
-        MethodLength := Length(fMethod);
+        Method := pointer(Method);
+        MethodLength := Length(Method);
         UserName := pointer(fAuthenticatedUser);
         UserNameLength := Length(fAuthenticatedUser);
       end;
@@ -690,8 +662,8 @@ begin
       ProtocolStatus := fResp.StatusCode;
       ClientIp := PAnsiChar(fRemoteIP);
       ClientIpLength := Length(fRemoteIP);
-      Method := pointer(fMethod);
-      MethodLength := Length(fMethod);
+      Method := pointer(Method);
+      MethodLength := Length(Method);
       UserName := pointer(fAuthenticatedUser);
       UserNameLength := Length(fAuthenticatedUser);
     end;
@@ -801,7 +773,7 @@ end;
 
 function TPnHttpServerContext.GetURL: SockString;
 begin
-  Result := fCtxInfo^.fURL;
+  Result := fReq^.pRawUrl;
 end;
 
 function TPnHttpServerContext.GetMethod: SockString;
@@ -1180,6 +1152,9 @@ var
   Binding: HTTP_BINDING_INFO;
 begin
   inherited Create;
+  LoadHttpApiLibrary;
+
+  fVerbs := VERB_TEXT;
   fRemoteIPHeader := '';
   fRemoteIPHeaderUpper := '';
   fServerName := XSERVERNAME+' ('+XPOWEREDOS+')';
@@ -1194,52 +1169,11 @@ begin
   //接收post的数据块大小
   fReceiveBufferSize := 1024*1024*16; // i.e. 1 MB
 
-
-  LoadHttpApiLibrary;
-  //Http Version Initialize
-  FHttpApiVersion := HTTPAPI_VERSION_2;
-  hr := HttpInitialize(FHttpApiVersion,HTTP_INITIALIZE_CONFIG or HTTP_INITIALIZE_SERVER,nil);
-  //Assert(hr=NO_ERROR, 'HttpInitialize Error');
-  HttpCheck(hr);
-
-  if FHttpApiVersion.HttpApiMajorVersion>1 then
-  begin
-    //Create FServerSessionID
-    hr := HttpCreateServerSession(FHttpApiVersion,FServerSessionID,0);
-    //Assert(hr=NO_ERROR, 'HttpCreateServerSession Error');
-    HttpCheck(hr);
-
-    //Create FUrlGroupID
-    hr := HttpCreateUrlGroup(FServerSessionID,FUrlGroupID,0);
-    //Assert(hr=NO_ERROR, 'HttpCreateUrlGroup Error');
-    HttpCheck(hr);
-
-    //Create FReqQueueHandle
-    LQueueName := '';
-//    if QueueName='' then
-//      BinToHexDisplayW(@fServerSessionID,SizeOf(fServerSessionID),QueueName);
-    hr := HttpCreateRequestQueue(FHttpApiVersion,Pointer(LQueueName),nil,0,FReqQueueHandle);
-    //Assert(hr=NO_ERROR, 'HttpCreateRequestQueue Error');
-    HttpCheck(hr);
-
-    //SetUrlGroupProperty
-    Binding.Flags := 1;
-    Binding.RequestQueueHandle := FReqQueueHandle;
-    hr := HttpSetUrlGroupProperty(FUrlGroupID,HttpServerBindingProperty,@Binding,SizeOf(HTTP_BINDING_INFO));
-    //Assert(hr=NO_ERROR, 'HttpSetUrlGroupProperty Error');
-    HttpCheck(hr);
-  end
-  else begin
-    //httpapi 1.0
-    //CreateHttpHandle
-    hr := HttpCreateHttpHandle(FReqQueueHandle, 0);
-    //Assert(hr=NO_ERROR, 'HttpCreateHttpHandle Error');
-    HttpCheck(hr);
-  end;
-
   FIoThreadsCount := AIoThreadsCount;
   FContextObjCount := AContextObjCount;
   FContextObjPool := TPNObjectPool.Create;
+
+  HttpApiInit;
 end;
 
 destructor TPnHttpSysServer.Destroy;
@@ -1248,31 +1182,7 @@ var
 begin
   Stop;
 
-  if FReqQueueHandle<>0 then
-  begin
-    if FHttpApiVersion.HttpApiMajorVersion>1 then
-    begin
-      if FUrlGroupID<>0 then
-      begin
-        HttpRemoveUrlFromUrlGroup(FUrlGroupID,nil,HTTP_URL_FLAG_REMOVE_ALL);
-        HttpCloseUrlGroup(FUrlGroupID);
-        FUrlGroupID := 0;
-      end;
-      HttpCloseRequestQueue(FReqQueueHandle);
-      if FServerSessionID<>0 then
-      begin
-        HttpCloseServerSession(FServerSessionID);
-        FServerSessionID := 0;
-      end;
-    end
-    else begin
-      for I := 0 to high(fRegisteredUnicodeUrl) do
-      HttpRemoveUrl(FReqQueueHandle,Pointer(fRegisteredUnicodeUrl[i]));
-      CloseHandle(FReqQueueHandle);
-    end;
-    FReqQueueHandle := 0;
-    HttpTerminate(HTTP_INITIALIZE_CONFIG or HTTP_INITIALIZE_SERVER,nil);
-  end;
+  HttpApiFinal;
 
 //  debugEx('PNPool1 act: %d, res: %d', [FContextObjPool.FObjectMgr.GetActiveObjectCount, FContextObjPool.FObjectRes.GetObjectCount]);
 //  debugEx('PNPool2 new: %d, free: %d', [FContextObjPool.FObjectRes.FNewObjectCount, FContextObjPool.FObjectRes.FFreeObjectCount]);
@@ -1615,35 +1525,26 @@ end;
 
 
 procedure TPnHttpSysServer._HandleRequestHead(AContext: TPnHttpServerContext);
-type
-  TVerbText = array[HttpVerbOPTIONS..pred(HttpVerbMaximum)] of SockString;
-const
-  VERB_TEXT: TVerbText = (
-    'OPTIONS','GET','HEAD','POST','PUT','DELETE','TRACE','CONNECT','TRACK',
-    'MOVE','COPY','PROPFIND','PROPPATCH','MKCOL','LOCK','UNLOCK','SEARCH');
 var
   BytesRead: Cardinal;
   hr: HRESULT;
-  Verbs: TVerbText;
   LContext: TPnHttpServerContext;
   I: Integer;
-  //pReqInfo: PHTTP_REQUEST_INFO;
   flags: Cardinal;
   fInAcceptEncoding: SockString;
 begin
   if (AContext<>nil) then
   begin
     AtomicIncrement(fReqCount);
-    Verbs := VERB_TEXT;
     // parse method and headers
     with AContext,AContext.fCtxInfo^ do
     begin
       fReqBufLen := fReqPerHttpIoData^.BytesRead;
       fConnectionID := fReq^.ConnectionId;
       //LContext.fHttpApiRequest := Req;
-      fURL := fReq^.pRawUrl;
-      if fReq^.Verb in [low(Verbs)..high(Verbs)] then
-        fMethod := Verbs[fReq^.Verb]
+      //fURL := fReq^.pRawUrl;
+      if fReq^.Verb in [low(fVerbs)..high(fVerbs)] then
+        fMethod := fVerbs[fReq^.Verb]
       else begin
         SetString(fMethod,fReq^.pUnknownVerb,fReq^.UnknownVerbLength);
       end;
@@ -1701,7 +1602,7 @@ begin
         if Assigned(OnBeforeBody) then
         begin
           with AContext do
-            hr := OnBeforeBody(fURL,fMethod,fInHeaders,fInContentType,fRemoteIP,fInContentLength,fUseSSL);
+            hr := OnBeforeBody(URL,fMethod,fInHeaders,fInContentType,fRemoteIP,fInContentLength,fUseSSL);
           if hr<>STATUS_SUCCESS then
           begin
             SendError(hr,'Rejected');
@@ -1775,9 +1676,9 @@ begin
       RequestBufferLen,
       BytesRead,
       POverlapped(LContext.fReqPerHttpIoData));
-    //Assert((hr=NO_ERROR) or (hr=ERROR_IO_PENDING));
-    //if (hr<>NO_ERROR) and (hr<>ERROR_IO_PENDING)) then
-    //  HttpCheck(hr);
+//    Assert((hr=NO_ERROR) or (hr=ERROR_IO_PENDING));
+//    if ((hr<>NO_ERROR) and (hr<>ERROR_IO_PENDING)) then
+//      HttpCheck(hr);
     if (hr<>NO_ERROR) and (hr<>ERROR_IO_PENDING) then
       LContext.SendError(STATUS_NOTACCEPTABLE,SysErrorMessage(hr));
   except
@@ -1933,23 +1834,18 @@ end;
 
 procedure TPnHttpSysServer._HandleResponseEnd(AContext: TPnHttpServerContext);
 begin
+  debugEx('_HandleResponseEnd', []);
   AtomicIncrement(fRespCount);
   DoAfterResponse(AContext);
   try
     with AContext do
     begin
-      if fReqPerHttpIoData.hFile>0 then
+      if fReqPerHttpIoData.hFile<>INVALID_HANDLE_VALUE then
       begin
         //debugEx('%d,FileClose: %d=====2', [Integer(AContext),fReqPerHttpIoData.hFile]);
         CloseHandle(fReqPerHttpIoData.hFile);
         fReqPerHttpIoData.hFile := INVALID_HANDLE_VALUE;
       end;
-//      if Length(fReqBodyBuf)>0 then
-//        SetLength(fReqBodyBuf, 0);
-//      if Length(fInContent)>0 then
-//        SetLength(fInContent, 0);
-//      if Length(fOutContent)>0 then
-//        SetLength(fOutContent, 0);
       Dispose(fCtxInfo);
       fCtxInfo := nil;
     end;
@@ -2046,6 +1942,93 @@ begin
   end;
 end;
 
+procedure TPnHttpSysServer.HttpApiInit;
+var
+  hr: HRESULT;
+  LUrlContext: HTTP_URL_CONTEXT;
+  LUri: SynUnicode;
+  LQueueName: SynUnicode;
+  Binding: HTTP_BINDING_INFO;
+begin
+  if FReqQueueHandle<>0 then Exit;
+
+  //Http Version Initialize
+  FHttpApiVersion := HTTPAPI_VERSION_2;
+  hr := HttpInitialize(FHttpApiVersion,HTTP_INITIALIZE_CONFIG or HTTP_INITIALIZE_SERVER,nil);
+  //Assert(hr=NO_ERROR, 'HttpInitialize Error');
+  HttpCheck(hr);
+
+  if FHttpApiVersion.HttpApiMajorVersion>1 then
+  begin
+    //Create FServerSessionID
+    hr := HttpCreateServerSession(FHttpApiVersion,FServerSessionID,0);
+    //Assert(hr=NO_ERROR, 'HttpCreateServerSession Error');
+    HttpCheck(hr);
+
+    //Create FUrlGroupID
+    hr := HttpCreateUrlGroup(FServerSessionID,FUrlGroupID,0);
+    //Assert(hr=NO_ERROR, 'HttpCreateUrlGroup Error');
+    HttpCheck(hr);
+
+    //Create FReqQueueHandle
+    LQueueName := '';
+//    if QueueName='' then
+//      BinToHexDisplayW(@fServerSessionID,SizeOf(fServerSessionID),QueueName);
+    hr := HttpCreateRequestQueue(FHttpApiVersion,Pointer(LQueueName),nil,0,FReqQueueHandle);
+    //Assert(hr=NO_ERROR, 'HttpCreateRequestQueue Error');
+    HttpCheck(hr);
+
+    //SetUrlGroupProperty
+    Binding.Flags := 1;
+    Binding.RequestQueueHandle := FReqQueueHandle;
+    hr := HttpSetUrlGroupProperty(FUrlGroupID,HttpServerBindingProperty,@Binding,SizeOf(HTTP_BINDING_INFO));
+    //Assert(hr=NO_ERROR, 'HttpSetUrlGroupProperty Error');
+    HttpCheck(hr);
+  end
+  else begin
+    //httpapi 1.0
+    //CreateHttpHandle
+    hr := HttpCreateHttpHandle(FReqQueueHandle, 0);
+    //Assert(hr=NO_ERROR, 'HttpCreateHttpHandle Error');
+    HttpCheck(hr);
+  end;
+
+end;
+
+procedure TPnHttpSysServer.HttpApiFinal;
+var
+  I: Integer;
+begin
+
+  //if FReqQueueHandle=0 then Exit;
+  if FReqQueueHandle<>0 then
+  begin
+    if FHttpApiVersion.HttpApiMajorVersion>1 then
+    begin
+      if FUrlGroupID<>0 then
+      begin
+        HttpRemoveUrlFromUrlGroup(FUrlGroupID,nil,HTTP_URL_FLAG_REMOVE_ALL);
+        HttpCloseUrlGroup(FUrlGroupID);
+        FUrlGroupID := 0;
+      end;
+      HttpCloseRequestQueue(FReqQueueHandle);
+      if FServerSessionID<>0 then
+      begin
+        HttpCloseServerSession(FServerSessionID);
+        FServerSessionID := 0;
+      end;
+    end
+    else begin
+      for I := 0 to high(fRegisteredUnicodeUrl) do
+        HttpRemoveUrl(FReqQueueHandle,Pointer(fRegisteredUnicodeUrl[i]));
+      CloseHandle(FReqQueueHandle);
+    end;
+    FReqQueueHandle := 0;
+    HttpTerminate(HTTP_INITIALIZE_CONFIG or HTTP_INITIALIZE_SERVER,nil);
+  end;
+
+end;
+
 procedure TPnHttpSysServer.Start;
 var
   I: Integer;
@@ -2054,13 +2037,14 @@ begin
   if (FIoThreads <> nil) then
     Exit;
 
+  //初始化对象池
+  FContextObjPool.FOnCreateObject := OnContextCreateObject;
+  FContextObjPool.InitObjectPool(FContextObjCount);
+
   //Create IO Complet
   FCompletionPort := CreateIoCompletionPort(INVALID_HANDLE_VALUE, 0, 0, 0);
   hNewCompletionPort := CreateIoCompletionPort(FReqQueueHandle, FCompletionPort, ULONG_PTR(FReqQueueHandle), 0);
   Assert(FCompletionPort=hNewCompletionPort, 'CreateIoCompletionPort Error.');
-
-  FContextObjPool.FOnCreateObject := OnContextCreateObject;
-  FContextObjPool.InitObjectPool(FContextObjCount);
 
   SetLength(FIoThreads, GetIoThreads);
   for I := 0 to Length(FIoThreads)-1 do
@@ -2073,10 +2057,18 @@ end;
 
 procedure TPnHttpSysServer.Stop;
 var
+  hr: HRESULT;
   I: Integer;
 begin
   if (FIoThreads = nil) then
     Exit;
+
+  //退出初始投递的Request
+  if FReqQueueHandle<>0 then
+  begin
+    hr := HttpShutdownRequestQueue(FReqQueueHandle);
+    HttpCheck(hr);
+  end;
 
   for I := 0 to Length(FIoThreads) - 1 do
     PostQueuedCompletionStatus(FCompletionPort, 0, 0, POverlapped(SHUTDOWN_FLAG));
@@ -2088,10 +2080,6 @@ begin
   end;
   FIoThreads := nil;
 
-  debugEx('PNPool1 act: %d, res: %d', [FContextObjPool.FObjectMgr.GetActiveObjectCount, FContextObjPool.FObjectRes.GetObjectCount]);
-  debugEx('PNPool2 new: %d, free: %d', [FContextObjPool.FObjectRes.FNewObjectCount, FContextObjPool.FObjectRes.FFreeObjectCount]);
-  FContextObjPool.FreeAllObjects;
-  debugEx('System3 new: %d, free: %d', [ServerContextNewCount, ServerContextFreeCount]);
 
   //Close IO Complet
   if FCompletionPort<>0 then
@@ -2099,6 +2087,13 @@ begin
     CloseHandle(FCompletionPort);
     FCompletionPort := 0;
   end;
+
+
+  //释放对象池
+  debugEx('PNPool1 act: %d, res: %d', [FContextObjPool.FObjectMgr.GetActiveObjectCount, FContextObjPool.FObjectRes.GetObjectCount]);
+  debugEx('PNPool2 new: %d, free: %d', [FContextObjPool.FObjectRes.FNewObjectCount, FContextObjPool.FObjectRes.FFreeObjectCount]);
+  FContextObjPool.FreeAllObjects;
+  debugEx('System3 new: %d, free: %d', [ServerContextNewCount, ServerContextFreeCount]);
 end;
 
 procedure TPnHttpSysServer.RegisterCompress(aFunction: THttpSocketCompress;

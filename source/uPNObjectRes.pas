@@ -1,3 +1,12 @@
+{******************************************************************************}
+{                                                                              }
+{       Delphi PnHttpSysServer                                                 }
+{                                                                              }
+{       Copyright (c) 2018 pony,¹âÃ÷(7180001@qq.com)                           }
+{                                                                              }
+{       Homepage: https://github.com/pony5551/PnHttpSysServer                  }
+{                                                                              }
+{******************************************************************************}
 unit uPNObjectRes;
 
 interface

@@ -5,16 +5,12 @@ program HttpSysServerDemo;
 {$R *.res}
 
 //使用Synopse优化字符copy
-//{$I Synopse.inc}
+{$I Synopse.inc}
 
 uses
-  Winapi.Windows,
   System.SysUtils,
-  System.Classes,
-  System.Generics.Collections,
   SynCommons,
   SynZip,
-  uPNCriticalSection,
   uPnHttpSys.Comm,
   uPnHttpSys.Api,
   uPNHttpSysServer,
@@ -46,14 +42,14 @@ begin
   fWinThPool := TWinThreadPool.Create;
   fWinThPool.Start;
   fPath := IncludeTrailingPathDelimiter(Path);
-  fServer := TPnHttpSysServer.Create(0,1000);
+  fServer := TPnHttpSysServer.Create(0,1100);
   fServer.AddUrl('/','8080',false,'+',true);
   fServer.RegisterCompress(CompressDeflate);
   //fServer.OnCallWorkItemEvent := CallWorkItem;
   fServer.OnRequest := Process;
   fServer.HTTPQueueLength := 100000;
   aFilePath := Format('%sw3log',[ExeVersion.ProgramFilePath]);
-  fServer.LogStart(aFilePath);
+  //fServer.LogStart(aFilePath);
   fServer.Start;
 end;
 

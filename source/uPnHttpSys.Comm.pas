@@ -1,3 +1,12 @@
+{******************************************************************************}
+{                                                                              }
+{       Delphi PnHttpSysServer                                                 }
+{                                                                              }
+{       Copyright (c) 2018 pony,光明(7180001@qq.com)                           }
+{                                                                              }
+{       Homepage: https://github.com/pony5551/PnHttpSysServer                  }
+{                                                                              }
+{******************************************************************************}
 unit uPnHttpSys.Comm;
 
 interface
@@ -53,6 +62,24 @@ type
   PPtrUInt = ^PtrUInt;
 
 {$endif FPC}
+
+
+const
+  //http头要求16kb大小
+  RequestBufferLen = 16*1024 + SizeOf(HTTP_REQUEST);
+
+  /// the running Operating System
+  XPOWEREDOS =
+    {$ifdef MSWINDOWS}
+      'Windows'
+    {$else}
+      {$ifdef LINUXNOTBSD} 'Linux' {$else} 'Posix' {$endif LINUXNOTBSD}
+    {$endif MSWINDOWS};
+
+  XSERVERNAME = 'PnHttpSysServer';
+  XPOWEREDPROGRAM = XSERVERNAME + ' 1.0.0.0';
+  XPOWEREDNAME = 'X-Powered-By';
+  XPOWEREDVALUE = XPOWEREDPROGRAM + ' ';
 
 
 //HTTP Status Code
@@ -150,6 +177,7 @@ type
 function CompressDeflateEx(var DataRawByteString; Compress: boolean): AnsiString;
 function RetrieveHeaders(const Request: HTTP_REQUEST;
   const RemoteIPHeadUp: SockString; out RemoteIP: SockString): SockString;
+function RetrieveRemoteAddr(const Request: HTTP_REQUEST): SockString;
 function ComputeContentEncoding(const Compress: THttpSocketCompressRecDynArray;
   P: PAnsiChar): THttpSocketCompressSet;
 function RegisterCompressFunc(var Compress: THttpSocketCompressRecDynArray;
@@ -178,6 +206,7 @@ implementation
 uses
   System.Classes,
   SynWinSock,
+  //Winapi.Winsock2,
   System.DateUtils;
 
 
@@ -372,6 +401,14 @@ begin
   {$else}
   end;
   {$endif}
+end;
+
+function RetrieveRemoteAddr(const Request: HTTP_REQUEST): SockString;
+begin
+  if (Request.Address.pRemoteAddress<>nil) then
+    GetSinIPFromCache(PVarSin(Request.Address.pRemoteAddress)^, Result)
+  else
+    Result := '';
 end;
 
 procedure GetDomainUserNameFromToken(UserToken: THandle; var result: SockString);

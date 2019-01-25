@@ -1,6 +1,14 @@
+{******************************************************************************}
+{                                                                              }
+{       Delphi PnHttpSysServer                                                 }
+{                                                                              }
+{       Copyright (c) 2018 pony,¹âÃ÷(7180001@qq.com)                           }
+{                                                                              }
+{       Homepage: https://github.com/pony5551/PnHttpSysServer                  }
+{                                                                              }
+{******************************************************************************}
 unit uPnHttpSys.Api;
 
-//{$I Sparkle.Inc}
 {$SCOPEDENUMS OFF}
 
 interface
@@ -11,7 +19,6 @@ uses
   System.SysUtils,
   Winapi.Windows,
   SynWinSock;
-  //Winapi.WinSock;
 
 {$MinEnumSize 4}
 {$Align 8}
