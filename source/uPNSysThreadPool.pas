@@ -11,6 +11,8 @@ unit uPNSysThreadPool;
 
 interface
 
+{$I PnDefs.inc}
+
 // if needed, we should later make this cross-platform. Currently it's not needed
 // since it's only being used by the server (which is windows-only)
 {$IFDEF MSWINDOWS}

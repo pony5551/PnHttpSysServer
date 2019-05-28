@@ -13,6 +13,8 @@ unit uPnHttpSys.Api;
 
 interface
 
+{$I PnDefs.inc}
+
 {$IFDEF MSWINDOWS}
 
 uses

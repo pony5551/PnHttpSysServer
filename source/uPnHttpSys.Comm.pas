@@ -17,6 +17,8 @@ uses
   uPnHttpSys.Api,
   SynZip;
 
+{$I PnDefs.inc}
+
 type
 {$ifdef UNICODE}
   /// define the fastest Unicode string type of the compiler

@@ -1,0 +1,4 @@
+{$M+}
+{.$DEFINE USE_QSTRING}
+
+
