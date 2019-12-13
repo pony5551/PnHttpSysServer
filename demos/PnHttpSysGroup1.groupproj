@@ -12,9 +12,6 @@
         <Projects Include="3_upload\HttpSysServerUpload.dproj">
             <Dependencies/>
         </Projects>
-        <Projects Include="..\..\PonyCodeSvrEx(PnHttpSysServer)\PonyCodeSvrEx.dproj">
-            <Dependencies/>
-        </Projects>
     </ItemGroup>
     <ProjectExtensions>
         <Borland.Personality>Default.Personality.12</Borland.Personality>
@@ -50,23 +47,14 @@
     <Target Name="HttpSysServerUpload:Make">
         <MSBuild Projects="3_upload\HttpSysServerUpload.dproj" Targets="Make"/>
     </Target>
-    <Target Name="PonyCodeSvrEx">
-        <MSBuild Projects="..\..\PonyCodeSvrEx(PnHttpSysServer)\PonyCodeSvrEx.dproj"/>
-    </Target>
-    <Target Name="PonyCodeSvrEx:Clean">
-        <MSBuild Projects="..\..\PonyCodeSvrEx(PnHttpSysServer)\PonyCodeSvrEx.dproj" Targets="Clean"/>
-    </Target>
-    <Target Name="PonyCodeSvrEx:Make">
-        <MSBuild Projects="..\..\PonyCodeSvrEx(PnHttpSysServer)\PonyCodeSvrEx.dproj" Targets="Make"/>
-    </Target>
     <Target Name="Build">
-        <CallTarget Targets="PnHttpSysServerMain;HttpSysServerDemo;HttpSysServerUpload;PonyCodeSvrEx"/>
+        <CallTarget Targets="PnHttpSysServerMain;HttpSysServerDemo;HttpSysServerUpload"/>
     </Target>
     <Target Name="Clean">
-        <CallTarget Targets="PnHttpSysServerMain:Clean;HttpSysServerDemo:Clean;HttpSysServerUpload:Clean;PonyCodeSvrEx:Clean"/>
+        <CallTarget Targets="PnHttpSysServerMain:Clean;HttpSysServerDemo:Clean;HttpSysServerUpload:Clean"/>
     </Target>
     <Target Name="Make">
-        <CallTarget Targets="PnHttpSysServerMain:Make;HttpSysServerDemo:Make;HttpSysServerUpload:Make;PonyCodeSvrEx:Make"/>
+        <CallTarget Targets="PnHttpSysServerMain:Make;HttpSysServerDemo:Make;HttpSysServerUpload:Make"/>
     </Target>
     <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
 </Project>

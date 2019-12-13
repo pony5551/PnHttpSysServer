@@ -1,9 +1,9 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <BorlandProject>
 	<Transactions>
-    <Transaction>1899-12-30 00:00:00.000.782,D:\__develop\delphi\__project_delphi\PnHttpSysServer\demos\PnHttpSysGroup1.groupproj=C:\Users\pony\Documents\Embarcadero\Studio\Projects\ProjectGroup1.groupproj</Transaction>
+    <Transaction>1899/12/30 00:00:00.000.782,C:\Users\pony\Documents\Embarcadero\Studio\Projects\ProjectGroup1.groupproj=D:\__develop\delphi\__project_delphi\PnHttpSysServer\demos\PnHttpSysGroup1.groupproj</Transaction>
   </Transactions>
 	<Default.Personality>
-		<Projects ActiveProject="D:\__develop\delphi\__project_delphi\PnHttpSysServer\demos\2_vcl\PnHttpSysServerMain.dproj"/>
+		<Projects ActiveProject="D:\__develop2020\__project_delphi\PnHttpSysServer\demos\3_upload\HttpSysServerUpload.dproj"/>
 	</Default.Personality>
 </BorlandProject>

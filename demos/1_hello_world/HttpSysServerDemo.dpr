@@ -4,18 +4,15 @@ program HttpSysServerDemo;
 
 {$R *.res}
 
-//使用Synopse优化字符copy
-{$I Synopse.inc}
-
 uses
-  System.SysUtils,
+  //FastMM4,
   SynCommons,
+  System.SysUtils,
   SynZip,
   uPnHttpSys.Comm,
   uPnHttpSys.Api,
   uPNHttpSysServer,
-  uPNSysThreadPool,
-  uPNDebug;
+  uPNSysThreadPool;
 
 type
   TTestServer = class
@@ -42,8 +39,8 @@ begin
   fWinThPool := TWinThreadPool.Create;
   fWinThPool.Start;
   fPath := IncludeTrailingPathDelimiter(Path);
-  fServer := TPnHttpSysServer.Create(0,1100);
-  fServer.AddUrl('/','8080',false,'+',true);
+  fServer := TPnHttpSysServer.Create(0,2000);
+  fServer.AddUrl('/','8000',false,'+',true);
   fServer.RegisterCompress(CompressDeflate);
   //fServer.OnCallWorkItemEvent := CallWorkItem;
   fServer.OnRequest := Process;
@@ -182,7 +179,7 @@ begin
 
   with TTestServer.Create(Format('%swww', [ExeVersion.ProgramFilePath])) do
   try
-    write('Server is now running on http://localhost:8080/'#13#10#13#10+
+    write('Server is now running on http://localhost:8000/'#13#10#13#10+
       'Press [Enter] to quit');
     writeln('');
     readln;

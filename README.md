@@ -42,3 +42,5 @@ ms httpapi server with iocp
 1.0.0.0r 修正io关闭时无法退出初始提交Request的问题。
 
 1.0.0.1r 整理优化对象池文件
+
+1.0.0.2r 整理文件,增加PnLibs库,去掉锁文件中的TQSimpleLock更换为TSpinLock

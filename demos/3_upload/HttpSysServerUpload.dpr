@@ -8,23 +8,18 @@ program HttpSysServerUpload;
 //{$I Synopse.inc}
 
 uses
-  madExcept,
-  madLinkDisAsm,
-  madListHardware,
-  madListProcesses,
-  madListModules,
   Winapi.Windows,
   System.SysUtils,
   System.Classes,
   System.Generics.Collections,
   SynCommons,
   SynZip,
-  uPNCriticalSection,
+  lib.PnDebug,
+  lib.PnLocker,
   uPnHttpSys.Comm,
   uPnHttpSys.Api,
   uPNHttpSysServer,
   uPNSysThreadPool,
-  uPNDebug,
   qjson,
   uUpload in 'uUpload.pas';
 
@@ -33,7 +28,7 @@ type
   TTestServer = class
   protected
     fWinThPool: TWinThreadPool;
-    fUpProcessLock: TPNCriticalSection;
+    fUpProcessLock: TPnLocker;
     fUpProcessList: TObjectDictionary<string,PUploadProcessInfo>;
     fPath: TFileName;
     fServer: TPnHttpSysServer;
@@ -55,7 +50,7 @@ var
 begin
   fWinThPool := TWinThreadPool.Create;
   fWinThPool.Start;
-  fUpProcessLock := TPNCriticalSection.Create;
+  fUpProcessLock := TPnLocker.Create('fUpProcessLock');
   fUpProcessList := TObjectDictionary<string,PUploadProcessInfo>.Create();
   fPath := IncludeTrailingPathDelimiter(Path);
   fServer := TPnHttpSysServer.Create(0,1000);
@@ -364,21 +359,21 @@ var
 
 begin
   //writeln(Ctxt.Method,' ',Ctxt.URL);
-  if IdemPChar(pointer(Ctxt.URL.Data),'/hello') then begin
+  if IdemPChar(pointer(Ctxt.URL),'/hello') then begin
     Ctxt.OutContent := 'hello world';
     Ctxt.OutContentType := HTML_CONTENT_TYPE;
     result := 200;
     Exit;
   end
   //上传文件
-  else if IdemPChar(pointer(Ctxt.URL.Data),'/fileupload/upload.asp') then begin
+  else if IdemPChar(pointer(Ctxt.URL),'/fileupload/upload.asp') then begin
 
     upload_asp;
 
     Exit;
   end
   //上传进度
-  else if IdemPChar(pointer(Ctxt.URL.Data),'/fileupload/getprocess.asp') then begin
+  else if IdemPChar(pointer(Ctxt.URL),'/fileupload/getprocess.asp') then begin
 
     getprocess_asp;
 

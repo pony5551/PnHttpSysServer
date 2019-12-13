@@ -15,7 +15,7 @@ interface
 
 {$DEFINE TMonitor}
 {.$DEFINE CSLock}
-{.$DEFINE TQSimpleLock}
+{.$DEFINE TSpinLock}
 
 uses
   System.SysUtils,
@@ -23,15 +23,6 @@ uses
   System.SyncObjs;
 
 type
-  TQSimpleLock = class
-  private
-    FFlags: Integer;
-  public
-    constructor Create;
-    procedure Enter; inline;
-    procedure Leave; inline;
-  end;
-
   TPnLocker = class
   private
     FLockName: string;
@@ -39,8 +30,8 @@ type
     FLock: TObject;
     {$ELSEIF defined(CSLock)}
     FCSLock: TCriticalSection;
-    {$ELSEIF defined(TQSimpleLock)}
-    FQLock: TQSimpleLock;
+    {$ELSEIF defined(TSpinLock)}
+    FSpLock: TSpinLock;
     {$ENDIF}
     function GetLockName: string;
   public
@@ -55,50 +46,6 @@ type
 implementation
 
 
-//位与，返回原值
-function AtomicAnd(var Dest: Integer; const AMask: Integer): Integer; inline;
-var
-  I:Integer;
-begin
-  repeat
-    Result := Dest;
-    I := Result and AMask;
-  until AtomicCmpExchange(Dest, I, Result) = Result;
-end;
-//位或，返回原值
-function AtomicOr(var Dest: Integer; const AMask: Integer): Integer; inline;
-var
-  I: Integer;
-begin
-  repeat
-    Result := Dest;
-    I := Result or AMask;
-  until AtomicCmpExchange(Dest, I, Result) = Result;
-end;
-
-constructor TQSimpleLock.Create;
-begin
-  inherited;
-  FFlags := 0;
-end;
-
-procedure TQSimpleLock.Enter;
-begin
-  while (AtomicOr(FFlags,$01) and $01)<>0 do
-    begin
-      {$IFDEF UNICODE}
-      TThread.Yield;
-      {$ELSE}
-      SwitchToThread;
-      {$ENDIF}
-    end;
-end;
-
-procedure TQSimpleLock.Leave;
-begin
-  AtomicAnd(FFlags, Integer($FFFFFFFE));
-end;
-
 constructor TPnLocker.Create(const ALockName: string);
 begin
   inherited Create;
@@ -107,8 +54,8 @@ begin
   FLock := TObject.Create;
   {$ELSEIF defined(CSLock)}
   FCSLock := TCriticalSection.Create;
-  {$ELSEIF defined(TQSimpleLock)}
-  FQLock := TQSimpleLock.Create;
+  {$ELSEIF defined(TSpinLock)}
+  FSpLock := TSpinLock.Create(False);
   {$ENDIF}
 end;
 
@@ -118,8 +65,8 @@ begin
   FreeAndNil(FLock);
   {$ELSEIF defined(CSLock)}
   FreeAndNil(FCSLock);
-  {$ELSEIF defined(TQSimpleLock)}
-  FreeAndNil(FQLock);
+  {$ELSEIF defined(TSpinLock)}
+  FreeAndNil(FSpLock);
   {$ENDIF}
   inherited Destroy;
 end;
@@ -130,8 +77,8 @@ begin
   System.TMonitor.Enter(FLock);
   {$ELSEIF defined(CSLock)}
   FCSLock.Enter;
-  {$ELSEIF defined(TQSimpleLock)}
-  FQLock.Enter;
+  {$ELSEIF defined(TSpinLock)}
+  FSpLock.Enter;
   {$ENDIF}
 end;
 
@@ -141,8 +88,8 @@ begin
   System.TMonitor.Exit(FLock);
   {$ELSEIF defined(CSLock)}
   FCSLock.Leave;
-  {$ELSEIF defined(TQSimpleLock)}
-  FQLock.Leave;
+  {$ELSEIF defined(TSpinLock)}
+  FSpLock.Exit;
   {$ENDIF}
 end;
 

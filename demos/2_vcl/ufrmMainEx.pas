@@ -52,6 +52,7 @@ type
     fServer: TPnHttpSysServer;
     function Process(Ctxt: TPnHttpServerContext; AFileUpload: Boolean;
           AReadBuf: PAnsiChar; AReadBufLen: Cardinal): Cardinal;
+    procedure MyCopyDataMsg(var Msg : TMessage); Message WM_COPYDATA;
   public
     { Public declarations }
   end;
@@ -164,8 +165,8 @@ begin
       sPortArr := sPorts.Split([',']);
       lnklblLocalUrl.Caption := Format('<a href="http://localhost:%s">http://localhost:%s</a>', [sPortArr[0], sPortArr[0]]);
       lnklblLocalUrl.Enabled := FServer.IsRuning;
-      Logs.Post(llMessage, '%s启动.', [Caption]);
-      Logs.Post(llMessage, '服务器端口%s', [ServerPorts]);
+      Logs.Post(llMessage, '%s启动.', [Caption], '');
+      Logs.Post(llMessage, '服务器端口%s', [ServerPorts], '');
     end;
   end
   else begin
@@ -176,7 +177,7 @@ begin
       chkLog.Enabled := True;
       lnklblLocalUrl.Caption := '';
       lnklblLocalUrl.Enabled := False;
-      Logs.Post(llMessage, '%s停止.', [Caption]);
+      Logs.Post(llMessage, '%s停止.', [Caption], '');
     end;
   end;
 end;
@@ -201,6 +202,7 @@ begin
       fServer.AddUrl('/',sPortArr[I].Trim,false,'+',true);
   end;
   fServer.RegisterCompress(CompressDeflateEx);
+  //fServer.OnCallWorkItemEvent := CallWorkItem;
   fServer.OnRequest := Process;
   fServer.HTTPQueueLength := 100000;
   if chkLog.Checked then
@@ -258,6 +260,31 @@ begin
   Ctxt.OutContent := 'PnHttpSysServerMain';
   Ctxt.OutContentType := AnsiString(HTML_CONTENT_TYPE);
   result := 200;
+end;
+
+//显示选定
+procedure TfrmMainEx.MyCopyDataMsg(var Msg: TMessage);
+var
+  strData: string;
+  cdds: TCopyDataStruct;
+begin
+  try
+    if Msg.Msg = WM_COPYDATA then
+    begin
+      cdds := PCopyDataStruct(Msg.LParam)^;
+
+      //IsWindow()
+
+      //debugEx('WndMethod MyCopyDataMsg: %d, %s', [cdds.dwData, PAnsiChar(cdds.lpData)]);
+      //strData := Format('%s', [PAnsiChar(cdds.lpData)]);
+      //AddTask(cdds.dwData, strData);
+    end;
+  except
+    On E: Exception do
+    begin
+      //debugEx('TfrmCardPool.MyCopyDataMsg: %s', [E.Message]);
+    end;
+  end;
 end;
 
 procedure TfrmMainEx.tmr1Timer(Sender: TObject);
