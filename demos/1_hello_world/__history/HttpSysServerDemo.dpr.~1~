@@ -42,7 +42,6 @@ begin
   fServer := TPnHttpSysServer.Create(0,2000);
   fServer.AddUrl('/','8000',false,'+',true);
   fServer.RegisterCompress(CompressDeflate);
-  //使用OnCallWorkItemEvent可扩展线程池使用
   //fServer.OnCallWorkItemEvent := CallWorkItem;
   fServer.OnRequest := Process;
   fServer.HTTPQueueLength := 100000;

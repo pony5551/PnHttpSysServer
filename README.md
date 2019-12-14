@@ -44,3 +44,5 @@ ms httpapi server with iocp
 1.0.0.1r 整理优化对象池文件
 
 1.0.0.2r 整理文件,增加PnLibs库,去掉锁文件中的TQSimpleLock更换为TSpinLock
+
+1.0.0.3r 调整使用CS锁，经测试win核心代码使用CS锁时平均效率较高与稳定

@@ -202,7 +202,6 @@ begin
       fServer.AddUrl('/',sPortArr[I].Trim,false,'+',true);
   end;
   fServer.RegisterCompress(CompressDeflateEx);
-  //使用OnCallWorkItemEvent可扩展线程池使用
   //fServer.OnCallWorkItemEvent := CallWorkItem;
   fServer.OnRequest := Process;
   fServer.HTTPQueueLength := 100000;
@@ -242,7 +241,6 @@ procedure TfrmMainEx.FormDestroy(Sender: TObject);
 begin
   if Assigned(FServer) then
     FreeAndNil(FServer);
-  Sleep(1000);
 end;
 
 procedure TfrmMainEx.lnklblLocalUrlLinkClick(Sender: TObject;

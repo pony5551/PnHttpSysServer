@@ -242,7 +242,6 @@ procedure TfrmMainEx.FormDestroy(Sender: TObject);
 begin
   if Assigned(FServer) then
     FreeAndNil(FServer);
-  Sleep(1000);
 end;
 
 procedure TfrmMainEx.lnklblLocalUrlLinkClick(Sender: TObject;

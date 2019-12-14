@@ -13,8 +13,8 @@ unit lib.PnLocker;
 
 interface
 
-{$DEFINE TMonitor}
-{.$DEFINE CSLock}
+{.$DEFINE TMonitor}
+{$DEFINE CSLock}
 {.$DEFINE TSpinLock}
 
 uses
